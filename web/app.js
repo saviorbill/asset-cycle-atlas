@@ -1,0 +1,1939 @@
+/* ===== Where are we? · TradingView/ADV 风格交互逻辑 ===== */
+(function () {
+  const W = window.WAW;
+  const $ = (s, r) => (r || document).querySelector(s);
+  const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
+  const _asofEl = document.getElementById('asof'); if (_asofEl) _asofEl.textContent = W.asof;
+  const _footAsof = document.getElementById('foot-asof'); if (_footAsof) _footAsof.textContent = W.asof;
+
+  // 顶级金融机构配色
+  const C = {
+    bg: '#F6F4EF', panel: '#FFFFFF', ink: '#141313', muted: '#635D53',
+    accent: '#A8875B', accentD: '#8E6F3E', up: '#B8402F', down: '#2E7D5B',
+    grid: 'rgba(20,19,19,.05)', axis: 'rgba(20,19,19,.28)', line: 'rgba(20,19,19,.08)',
+  };
+  const SERIES = ['#0E1F35', '#A8875B', '#2E7D5B', '#B8402F', '#1B3350', '#8E6F3E', '#4A6FA5', '#7D3C98'];
+  const charts = {};
+  const FONT_STACK = '-apple-system,BlinkMacSystemFont,"SF Pro Text","Inter","Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans SC",sans-serif';
+  const CHART_OPTS = { textStyle: { fontFamily: FONT_STACK } };
+
+  const RANGES = [
+    { k: 'ytd', label: '今年以来' }, { k: '1y', label: '近1年' }, { k: '3y', label: '近3年' },
+    { k: '5y', label: '近5年' }, { k: '10y', label: '近10年' }, { k: 'all', label: '全部' },
+  ];
+
+  // ---------- 全局研究口径：基准指数 + 区间 ----------
+  const QP = new URLSearchParams(location.search);
+  const INDEX_LIST = ['上证指数', '沪深300', '创业板指', '中证500', '中证1000', '中证2000', '科创50'];
+  const SCOPE = {
+    index: INDEX_LIST.indexOf(QP.get('idx')) >= 0 ? QP.get('idx')
+      : (INDEX_LIST.indexOf(QP.get('gidx')) >= 0 ? QP.get('gidx') : '上证指数'),
+    range: RANGES.some(r => r.k === QP.get('grange')) ? QP.get('grange') : 'all',
+  };
+  function ts(s) { return Date.parse(s + 'T00:00:00'); }
+  // 时间戳 → 本地日期（toISOString 会按 UTC 偏移，东八区会少一天）
+  function fmtDate(v) {
+    const d = new Date(v); const p = n => String(n).padStart(2, '0');
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+  }
+  // ---------- 数字规范：千分位、固定小数、显式正负号 ----------
+  const _nf = {};
+  function nf(d) {
+    return _nf[d] || (_nf[d] = new Intl.NumberFormat('en-US', { minimumFractionDigits: d, maximumFractionDigits: d }));
+  }
+  function isNil(v) { return v == null || typeof v !== 'number' || isNaN(v); }
+  function fmtNum(v, d) { return isNil(v) ? '—' : nf(d == null ? 2 : d).format(v); }
+  function fmtSigned(v, d, unit) {
+    if (isNil(v)) return '—';
+    d = d == null ? 1 : d;
+    return (v > 0 ? '+' : '') + nf(d).format(v) + (unit || '');
+  }
+  function fmtUnit(v, d, unit) {
+    if (isNil(v)) return '—';
+    const s = nf(d == null ? 2 : d).format(v);
+    if (!unit) return s;
+    return unit === '%' ? s + '%' : s + ' ' + unit;
+  }
+  // 东方财富式 K 线悬浮框：开高低收、涨跌额/幅、成交额，红涨绿跌
+  function klineTipHtml(date, o, h, l, c, prevClose, amt, extra) {
+    const pct = (!isNil(prevClose) && prevClose !== 0 && !isNil(c)) ? (c / prevClose - 1) * 100 : null;
+    const chg = (!isNil(prevClose) && !isNil(c)) ? c - prevClose : null;
+    const cls = pct == null ? 'kt-flat' : (pct > 0 ? 'kt-up' : pct < 0 ? 'kt-down' : 'kt-flat');
+    const row = (k, v, c2) => '<div class="kt-r"><span>' + k + '</span><b class="' + (c2 || cls) + '">' + v + '</b></div>';
+    let s = '<div class="k-tip"><div class="k-tip-d">' + date + '</div>';
+    s += row('开盘', fmtNum(o, 2)) + row('最高', fmtNum(h, 2)) +
+      row('最低', fmtNum(l, 2)) + row('收盘', fmtNum(c, 2));
+    s += row('涨跌额', chg == null ? '—' : fmtSigned(chg, 2)) +
+      row('涨跌幅', pct == null ? '—' : fmtSigned(pct, 2, '%'));
+    if (amt != null) s += row('成交额', fmtNum(amt / 1e8, 0) + ' 亿元', 'kt-flat');
+    if (extra) s += extra;
+    return s + '</div>';
+  }
+  // 传入 0–1 的分位值，输出 0–100%
+  function fmtPct(v, d) { return isNil(v) ? '—' : nf(d == null ? 0 : d).format(v * 100) + '%'; }
+  function fmtAxis(v) {
+    if (isNil(v)) return '';
+    if (v === 0) return '0';
+    const a = Math.abs(v);
+    if (a >= 1e12) return nf(a % 1e12 === 0 ? 0 : 1).format(v / 1e12) + '万亿';
+    if (a >= 1e8) return nf(a % 1e8 === 0 ? 0 : 1).format(v / 1e8) + '亿';
+    if (a >= 1e4) return nf(a % 1e4 === 0 ? 0 : 1).format(v / 1e4) + '万';
+    if (a >= 100) return nf(0).format(v);
+    return nf(a >= 10 ? 0 : 1).format(v);
+  }
+  function pctlCls(p) { return isNil(p) ? '' : (p >= 0.7 ? 'up' : p <= 0.3 ? 'down' : ''); }
+  function pctile(arr, v) {
+    const a = arr.filter(x => x != null && !isNaN(x)).slice().sort((p, q) => p - q);
+    if (!a.length || v == null) return null;
+    let k = 0; while (k < a.length && a[k] <= v) k++;
+    return k / a.length;
+  }
+  function percentileVal(arr, p) {
+    const a = arr.filter(x => x != null && !isNaN(x)).slice().sort((x, y) => x - y);
+    if (!a.length) return null;
+    const idx = Math.min(a.length - 1, Math.max(0, Math.floor(p * (a.length - 1))));
+    return a[idx];
+  }
+  // 分类轴用的区间起点（按日期，而不是固定日线根数，周/月线也正确）
+  function rangeStartDate(dates, key) {
+    if (!dates.length || key === 'all') return null;
+    const d = new Date(dates[dates.length - 1] + 'T00:00:00');
+    const p = n => String(n).padStart(2, '0');
+    if (key === 'ytd') return d.getFullYear() + '-01-01';
+    const yrs = { '1y': 1, '3y': 3, '5y': 5, '10y': 10 }[key];
+    if (!yrs) return null;
+    const t = new Date(d); t.setFullYear(t.getFullYear() - yrs);
+    return t.getFullYear() + '-' + p(t.getMonth() + 1) + '-' + p(t.getDate());
+  }
+
+  // ---------- 图表工厂：统计条 + 图表(+最新值线/P30P50P70) ----------
+  function buildChart(divId, opts) {
+    const el = document.getElementById(divId);
+    if (!el) return null;
+    const card = el.closest('.chart-card');
+
+    // 统计条
+    let st = card.querySelector('.chart-stats');
+    if (!st) { st = document.createElement('div'); st.className = 'chart-stats'; card.insertBefore(st, el); }
+
+    const data = opts.data; // {dates:[], series:[{name, values, color}]}
+    const dec = opts.decimals == null ? 2 : opts.decimals;
+    // 有单位的序列，坐标轴沿用该单位，不再二次缩写（标题已标注单位）
+    const axisFmt = function (v) {
+      if (isNil(v)) return '';
+      if (!opts.unit || opts.unit === '%') return fmtAxis(v);
+      return nf(Math.abs(v) >= 100 || v === 0 ? 0 : 1).format(v);
+    };
+    const chart = charts[divId] || echarts.init(el);
+    charts[divId] = chart;
+
+    function render(data) {
+      const dates = data.dates;
+      const xs = dates.map(ts);
+      const primary = data.series[0].values;
+      const lastV = primary[primary.length - 1];
+      const p30 = percentileVal(primary, 0.30), p50 = percentileVal(primary, 0.50), p70 = percentileVal(primary, 0.70);
+      const pctl = pctile(primary, lastV);
+      // 统计条
+      if (opts.statsHtml != null) {
+        st.innerHTML = opts.statsHtml;
+      } else {
+        let _h = '<span class="stat"><b>最新</b> ' + fmtUnit(lastV, dec, opts.unit) + '</span>' +
+          '<span class="stat"><b>历史分位</b> <em class="' + pctlCls(pctl) + '">' + fmtPct(pctl, 0) + '</em></span>';
+        if (opts.showPct && !opts.hidePctStats) _h += '<span class="stat p">P30 ' + fmtNum(p30, dec) + '</span><span class="stat p">P50 ' + fmtNum(p50, dec) + '</span><span class="stat p">P70 ' + fmtNum(p70, dec) + '</span>';
+        st.innerHTML = _h;
+      }
+
+      const series = data.series.map((s, i) => ({
+        name: s.name, type: 'line', showSymbol: false, smooth: true, connectNulls: false,
+        data: xs.map((t, j) => [t, s.values[j]]),
+        lineStyle: { color: s.color || SERIES[i % SERIES.length], width: s.width || 1.9 },
+        itemStyle: { color: s.color || SERIES[i % SERIES.length] },
+        areaStyle: (s.area || (opts.area && data.series.length === 1)) ? { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(201,169,106,.16)' }, { offset: 1, color: 'rgba(201,169,106,0)' }] } } : undefined,
+        emphasis: { focus: 'series' },
+      }));
+
+      // markLine: P30/P50/P70 + 最新值
+      let mkLines;
+      if (opts.noPct) {
+        mkLines = [{ yAxis: 0, lineStyle: { color: 'rgba(0,0,0,.22)', type: 'dashed', width: 1 }, label: { formatter: '基准 0%', position: 'insideEndTop', color: '#7A7367', fontSize: 11 } }];
+      } else if (opts.showPct) {
+        mkLines = [
+          { yAxis: p30, lineStyle: { color: 'rgba(20,19,19,.14)', type: 'dashed', width: 1 }, label: { show: false } },
+          { yAxis: p50, lineStyle: { color: 'rgba(20,19,19,.20)', type: 'dashed', width: 1 }, label: { show: false } },
+          { yAxis: p70, lineStyle: { color: 'rgba(20,19,19,.14)', type: 'dashed', width: 1 }, label: { show: false } },
+          { yAxis: lastV, lineStyle: { color: C.accentD, type: 'dashed', width: 1.6 }, label: { show: false } },
+        ];
+      } else {
+        mkLines = [
+          { yAxis: lastV, lineStyle: { color: C.accentD, type: 'dashed', width: 1.6 }, label: { show: false } },
+        ];
+      }
+      // 标注专用系列：不参与图例开关，保证任意隐藏某条指数后牛熊/事件标注仍在
+      const annoSeries = {
+        name: '__anno__', type: 'line', data: xs.map(t => [t, null]),
+        showSymbol: false, silent: true, z: 1,
+        lineStyle: { width: 0, opacity: 0 }, itemStyle: { opacity: 0 },
+        markLine: { silent: true, symbol: 'none', data: mkLines },
+      };
+      // 只保留与当前数据区间相交的牛熊段，并把起止裁剪到数据范围内
+      const cyc = opts.cycleSegs || (opts.cycleShade ? (W.index_cycles[SCOPE.index] || W.index_cycles['上证指数']) : null) || [];
+      const segs = cyc
+        .filter(sg => sg && sg[1] <= dates[dates.length - 1] && sg[2] >= dates[0])
+        .map(sg => [sg[0], sg[1] < dates[0] ? dates[0] : sg[1], sg[2] > dates[dates.length - 1] ? dates[dates.length - 1] : sg[2]]);
+      if (segs.length) {
+        annoSeries.markArea = { silent: true, data: segs.map(sg => [
+          { xAxis: ts(sg[1]), itemStyle: { color: sg[0] === 'bull' ? 'rgba(184,147,92,.13)' : 'rgba(96,116,142,.12)' } },
+          { xAxis: ts(sg[2]) },
+        ]) };
+      }
+      if (opts.markPoints && opts.markPoints.length) {
+        annoSeries.markPoint = { symbolSize: 7, silent: true, data: opts.markPoints, label: { fontSize: 11, color: C.muted } };
+      }
+      series.push(annoSeries);
+      chart.setOption({
+        textStyle: CHART_OPTS.textStyle,
+        grid: { left: 8, right: 16, top: 34, bottom: opts.zoom === false ? 28 : 54, containLabel: true },
+        legend: data.series.length > 1 ? { data: data.series.map(s => s.name), selected: opts.legendSelected || {}, top: 0, textStyle: { color: C.ink, fontSize: 11.5 }, icon: 'roundRect', itemWidth: 14, itemHeight: 3 } : undefined,
+        tooltip: {
+          trigger: 'axis', confine: true,
+          axisPointer: { type: 'cross', crossStyle: { color: 'rgba(0,0,0,.35)' }, lineStyle: { color: 'rgba(0,0,0,.35)', type: 'dashed' }, label: { backgroundColor: C.accent } },
+          backgroundColor: 'rgba(255,255,255,.98)', borderColor: C.line, borderRadius: 6,
+          textStyle: { color: C.ink, fontSize: 12 },
+          formatter: function (ps) {
+            ps = (ps || []).filter(p => p.seriesName !== '__anno__');
+            if (!ps.length) return '';
+            const ds = fmtDate(ps[0].value[0]);
+            let h = '<b>' + ds + '</b>';
+            ps.forEach(p => { h += '<br/>' + p.marker + p.seriesName + '：<b>' + fmtUnit(p.value[1], dec, opts.unit) + '</b>'; });
+            const f = opts.cycleShade ? findCycle(ds) : null;
+            if (f) h += '<br/><span style="color:' + C.accentD + '">区间：' + f.cycle.name + ' · ' + (f.seg.type === 'bull' ? '牛市' : '熊市') + '</span>';
+            return h;
+          },
+        },
+        xAxis: { type: 'time', axisLine: { lineStyle: { color: C.axis } }, axisTick: { show: false }, axisLabel: { color: C.muted, fontSize: 11 }, splitLine: { show: false } },
+        yAxis: { type: 'value', scale: true, splitNumber: 4, splitLine: { lineStyle: { color: C.grid } }, axisLabel: { color: C.muted, fontSize: 11, formatter: axisFmt } },
+        dataZoom: opts.zoom === false ? [] : [
+          { type: 'inside' },
+          { type: 'slider', height: 16, bottom: 8, borderColor: 'transparent', fillerColor: 'rgba(201,169,106,.12)', handleStyle: { color: C.accent }, dataBackground: { lineStyle: { color: 'rgba(0,0,0,.15)' }, areaStyle: { color: 'rgba(0,0,0,.04)' } }, textStyle: { color: C.muted, fontSize: 11 } },
+        ],
+        series,
+      }, { notMerge: true });
+
+      // 当前观察、宏观页固定展示全区间；单图仍可用滑块缩放
+      if (opts.zoomRange) {
+        chart.dispatchAction({ type: 'dataZoom', startValue: opts.zoomRange[0], endValue: opts.zoomRange[1] });
+      } else if (opts.zoom !== false) {
+        chart.dispatchAction({ type: 'dataZoom', start: 0, end: 100 });
+      }
+    }
+
+    render(data);
+    return { chart, render };
+  }
+
+  // ---------- 周期工具 ----------
+  function cycleMarkArea() {
+    const arr = [];
+    W.cycles.forEach(cy => cy.segments.forEach(seg => arr.push([
+      { xAxis: ts(seg.start), itemStyle: { color: seg.type === 'bull' ? 'rgba(184,147,92,.12)' : 'rgba(96,116,142,.11)' } },
+      { xAxis: ts(seg.end) },
+    ])));
+    return { silent: true, data: arr };
+  }
+  function findCycle(dateStr) {
+    for (const cy of W.cycles) {
+      if (dateStr >= cy.start && (cy.end ? dateStr <= cy.end : true)) {
+        for (const seg of cy.segments) if (dateStr >= seg.start && dateStr <= seg.end) return { cycle: cy, seg };
+        return { cycle: cy, seg: cy.segments[cy.segments.length - 1] };
+      }
+    }
+    return null;
+  }
+
+  // ---------- 全局口径：基准指数 + 区间 ----------
+  function renderScopeBar() {
+    const iBox = document.getElementById('scope-index');
+    const rBox = document.getElementById('scope-range');
+    if (!iBox || !rBox) return;
+    iBox.innerHTML = INDEX_LIST.map(k =>
+      '<button data-gidx="' + k + '"' + (k === SCOPE.index ? ' class="active"' : '') + '>' + k + '</button>').join('');
+    rBox.innerHTML = RANGES.map(r =>
+      '<button data-grange="' + r.k + '"' + (r.k === SCOPE.range ? ' class="active"' : '') + '>' + r.label + '</button>').join('');
+    $$('[data-gidx]', iBox).forEach(b => b.addEventListener('click', () => setScopeIndex(b.dataset.gidx)));
+    $$('[data-grange]', rBox).forEach(b => b.addEventListener('click', () => setScopeRange(b.dataset.grange)));
+    const meta = document.getElementById('scope-meta');
+    if (meta) meta.innerHTML = '<span class="dot"></span><span>数据截至 <b>' + W.asof + '</b></span>';
+  }
+
+  function setScopeIndex(i) {
+    if (INDEX_LIST.indexOf(i) < 0 || i === SCOPE.index) return;
+    SCOPE.index = i;
+    renderScopeBar();
+    histIndex = i; histPhase = null; historyFirstRender = true;
+    simIndex = i;
+    // 事件时间轴固定不变，仅刷新右侧对照图
+    refreshCycleLensIndex(i);
+    if (histInit) renderHistory();
+    if (curInit) { renderDashboard(); renderSimilarity(simRange); renderLongIndicators(); renderIndicators(); }
+    if (macroInit) rebuildMacro();
+  }
+
+  function setScopeRange(r) {
+    if (!RANGES.some(x => x.k === r) || r === SCOPE.range) return;
+    SCOPE.range = r;
+    renderScopeBar();
+    applyHistoryRange(r);
+  }
+
+  function disposeChartsIn(root) {
+    if (!root) return;
+    Object.keys(charts).forEach(id => {
+      const el = document.getElementById(id);
+      if (!el || root.contains(el)) {
+        try { charts[id].dispose(); } catch (e) { }
+        delete charts[id];
+      }
+    });
+  }
+
+  function rebuildMacro() {
+    const grid = document.getElementById('macro-grid');
+    const body = document.getElementById('macro-corr-body');
+    disposeChartsIn(grid);
+    if (grid) { grid.innerHTML = ''; delete grid.dataset.done; }
+    if (body) { body.innerHTML = ''; delete body.dataset.done; }
+    renderMacro();
+  }
+
+  // ---------- 视图切换 ----------
+  let histInit = false, curInit = false, macroInit = false;
+  function go(view) {
+    document.body.dataset.view = view;
+    $$('.view').forEach(v => v.classList.remove('active'));
+    const el = document.getElementById('view-' + view); if (el) el.classList.add('active');
+    $$('.tn-item[data-view]').forEach(n => n.classList.toggle('active', n.dataset.view === view));
+    const _assets = document.getElementById('nav-assets');
+    if (_assets) _assets.classList.toggle('active', view === 'history' || view === 'macro');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    if (view === 'history' && !histInit) { histInit = true; setTimeout(renderHistory, 40); }
+    if (view === 'current' && !curInit) { curInit = true; setTimeout(renderCurrent, 40); }
+    if (view === 'macro' && !macroInit) { macroInit = true; setTimeout(renderMacro, 40); }
+    setTimeout(() => Object.values(charts).forEach(c => c.resize()), 80);
+    // 复盘页首次可见后再建对照图，避免在隐藏容器里按 0 宽初始化
+    if (view === 'history') setTimeout(function () { updateCycleLens(true); }, 140);
+  }
+  $$('.tn-item[data-view], .menu-item[data-view]').forEach(n => n.addEventListener('click', () => go(n.dataset.view)));
+
+  // ---------- 历史复盘 ----------
+  let histFreq = 'week', histCycle = null;
+  let histChartData = null;
+  let histIndex = SCOPE.index;
+  let historyFirstRender = true;
+  const HIDE = (function () { const q = QP.get('hide'); return q ? q.split(',') : []; })();
+  const EV_COLOR = { bottom: '#B8402F', top: '#2E7D5B', policy: '#A8875B', risk: '#8E6F3E', up: '#B8402F', now: '#0E1F35' };
+  function eventColor(t) { return EV_COLOR[t] || '#6B6B6B'; }
+
+  function aggregateOHLC(k, freq) {
+    if (freq === 'day') return k;
+    const keyFn = freq === 'week'
+      ? (dstr) => { const d = new Date(dstr + 'T00:00:00'); const o = new Date(d.getFullYear(), 0, 1); return d.getFullYear() + '-W' + String(Math.ceil(((d - o) / 86400000 + o.getDay() + 1) / 7)).padStart(2, '0'); }
+      : (dstr) => dstr.slice(0, 7);
+    const bk = {}; const order = [];
+    k.dates.forEach((d, i) => {
+      const key = keyFn(d);
+      const v = (k.vol && k.vol[i]) ? k.vol[i] : 0;
+      const am = (k.amt && k.amt[i]) ? k.amt[i] : 0;
+      if (!bk[key]) { bk[key] = { date: d, open: k.open[i], high: k.high[i], low: k.low[i], close: k.close[i], vol: v, amt: am }; order.push(key); }
+      else { const b = bk[key]; b.date = d; b.high = Math.max(b.high, k.high[i]); b.low = Math.min(b.low, k.low[i]); b.close = k.close[i]; b.vol += v; b.amt += am; }
+    });
+    const out = { dates: [], open: [], high: [], low: [], close: [], vol: [], amt: [] };
+    order.forEach(key => { const b = bk[key]; out.dates.push(b.date); out.open.push(b.open); out.high.push(b.high); out.low.push(b.low); out.close.push(b.close); out.vol.push(b.vol); out.amt.push(b.amt); });
+    return out;
+  }
+
+  function lastValid(arr) { for (let i = arr.length - 1; i >= 0; i--) if (arr[i] != null) return arr[i]; return null; }
+
+  function cycleContext(key) {
+    const kl = W.kline && W.kline[key];
+    const dates = kl ? kl.dates : W.main_daily.dates;
+    const closes = kl ? kl.close : W.main_daily[key];
+    let idxStart = null;
+    for (let i = 0; i < closes.length; i++) if (closes[i] != null) { idxStart = dates[i]; break; }
+    if (!idxStart) idxStart = dates[0] || '1990-01-01';
+    let effCycle = histCycle;
+    if (effCycle) { const cy0 = W.cycles.find(c => c.id === effCycle); if (!cy0 || (cy0.end || W.asof) < idxStart) effCycle = null; }
+    const allEvs = W.index_events[key] || [];
+    const valAt = (ds) => { const i = nearestIdx(dates, ds); return closes[i]; };
+    let mp = [];
+    if (effCycle) {
+      const cy = W.cycles.find(c => c.id === effCycle); const st = cy.start, en = cy.end || W.asof;
+      mp = allEvs.filter(e => e.date >= st && e.date <= en).map(e => {
+        const v = valAt(e.date); if (v == null) return null;
+        return { coord: [e.date, v], value: e.label, symbolSize: 6, itemStyle: { color: eventColor(e.type) }, label: { formatter: e.label, position: (e.type === 'top' || e.type === 'risk') ? 'top' : 'bottom', fontSize: 11, color: eventColor(e.type) } };
+      }).filter(Boolean);
+    } else {
+      mp = allEvs.filter(e => e.kind === 'tp').map(e => {
+        const v = valAt(e.date); if (v == null) return null;
+        const isBull = e.type === 'bottom';
+        return { coord: [e.date, v], value: e.label, symbolSize: 6, itemStyle: { color: isBull ? C.up : C.down }, label: { formatter: isBull ? '底' : '顶', position: isBull ? 'bottom' : 'top', color: isBull ? C.up : C.down, fontSize: 11 } };
+      }).filter(Boolean);
+    }
+    let zoomRange = null;
+    if (effCycle) { const cy = W.cycles.find(c => c.id === effCycle); if (cy) zoomRange = [cy.start, cy.end || W.asof]; }
+    return { effCycle, mp, zoomRange };
+  }
+  let histMode = 'kline';
+  let histPhase = null;
+  let cycleLensState = null;
+  let lensRaf = null;
+  let lensMode = 'line';  // line | kline
+  const FREQ_LABEL = { day: '日', week: '周', month: '月' };
+  const EV_PRIORITY = { tp: 3, risk: 2, policy: 1, up: 0 };
+  const PHASE_SHORT = { '底部初期': '底部/初期', '牛市中期': '中期', '牛市后期': '后期', '转熊': '转熊' };
+  const ALL_INDICES = ['上证指数', '沪深300', '创业板指', '中证500', '中证1000', '中证2000', '科创50'];
+
+  function nearestIdx(dates, ds) {
+    if (!dates.length) return 0;
+    if (ds <= dates[0]) return 0;
+    if (ds >= dates[dates.length - 1]) return dates.length - 1;
+    let lo = 0, hi = dates.length - 1;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (dates[mid] < ds) lo = mid + 1; else hi = mid; }
+    const a0 = lo > 0 ? lo - 1 : 0;
+    const da = Math.abs(new Date(dates[a0] + 'T00:00:00') - new Date(ds + 'T00:00:00'));
+    const db = Math.abs(new Date(dates[lo] + 'T00:00:00') - new Date(ds + 'T00:00:00'));
+    return db < da ? lo : a0;
+  }
+  function nearestCat(dates, ds) { return dates[nearestIdx(dates, ds)]; }
+
+  function pickEventsByPeriod(evs, freq) {
+    if (freq === 'day') return evs;
+    const keyFn = freq === 'week'
+      ? (d) => { const dt = new Date(d + 'T00:00:00'); const o = new Date(dt.getFullYear(), 0, 1); return dt.getFullYear() + '-W' + Math.ceil(((dt - o) / 86400000 + o.getDay() + 1) / 7); }
+      : (d) => d.slice(0, 7);
+    const best = {};
+    evs.forEach(e => { const k = keyFn(e.date); if (!best[k] || (EV_PRIORITY[e.kind] || 0) > (EV_PRIORITY[best[k].kind] || 0)) best[k] = e; });
+    return Object.values(best);
+  }
+
+  function buildMarkArea(cycleSegs, key, effCycle, useCategory, dates) {
+    const X = useCategory ? (d) => nearestCat(dates, d) : (d) => ts(d);
+    if (!effCycle) {
+      return cycleSegs.map(sg => [{ xAxis: X(sg[1]), itemStyle: { color: sg[0] === 'bull' ? 'rgba(184,147,92,.13)' : 'rgba(96,116,142,.12)' } }, { xAxis: X(sg[2]) }]);
+    }
+    const phs = getPhases(key, effCycle);
+    if (!phs.length) return [];
+    return phs.map(p => {
+      const c = p.stage === 'bear' ? 'rgba(96,116,142,.12)' : (p.stage === 'peak' ? 'rgba(176,46,36,.15)' : 'rgba(184,147,92,.12)');
+      return [{ xAxis: X(p.start), itemStyle: { color: c } }, { xAxis: X(p.end) }];
+    });
+  }
+
+  function getPhases(idx, cycleId) {
+    const cp = (W.cycle_phases && W.cycle_phases[idx]) || (W.cycle_phases && W.cycle_phases['上证指数']) || {};
+    const phs = (cp[cycleId] || []).slice();
+    const bottom = phs.find(p => p.name === '底部环境');
+    const early = phs.find(p => p.name === '牛市初期');
+    let out = phs.filter(p => p.name !== '底部环境' && p.name !== '牛市初期' && p.name !== '牛市顶点');
+    if (bottom || early) {
+      const s0 = bottom ? bottom.start : early.start;
+      const e0 = early ? early.end : bottom.end;
+      out.unshift({ name: '底部初期', start: s0, end: e0, stage: 'bull' });
+    }
+    return out;
+  }
+
+  function buildPhaseList(idx, kd, ctx) {
+    if (!ctx || !ctx.effCycle) return [];
+    const phs = getPhases(idx, ctx.effCycle);
+    const d = kd.dates, c = kd.close, v = kd.amt || [];
+    return phs.map(p => {
+      const si = nearestIdx(d, p.start), ei = nearestIdx(d, p.end);
+      const seg = c.slice(si, ei + 1), vseg = v.slice(si, ei + 1);
+      let peak = -Infinity, mdd = 0;
+      seg.forEach(x => { if (x > peak) peak = x; const dd = x / peak - 1; if (dd < mdd) mdd = dd; });
+      const ret = seg.length ? (seg[seg.length - 1] / seg[0] - 1) * 100 : null;
+      const avgVol = vseg.length ? vseg.reduce((a, b) => a + (b || 0), 0) / vseg.length : null;
+      const daily = (W.kline && W.kline[idx] && W.kline[idx].dates) || [];
+      const wdays = daily.filter(dd => dd >= p.start && dd <= p.end).length || (ei - si + 1);
+      return { name: p.name, sCat: d[si], eCat: d[ei], ret: ret == null ? null : (Math.round(ret * 10) / 10), mdd: Math.round(mdd * 1000) / 10, width: wdays, avgVol: avgVol == null ? null : avgVol / 1e8, stage: p.stage };
+    });
+  }
+
+  function histEventScatter(idx, dates, closes, ctx) {
+    const evs = (W.index_events && W.index_events[idx]) || [];
+    let list = (ctx && ctx.effCycle)
+      ? evs.filter(e => { const cy = W.cycles.find(c => c.id === ctx.effCycle); return cy && e.date >= cy.start && e.date <= (cy.end || W.asof); })
+      : evs.filter(e => e.kind === 'tp');
+    list = pickEventsByPeriod(list, histFreq);
+    return list.map(e => {
+      const ii = nearestIdx(dates, e.date);
+      const isTop = e.type === 'top' || e.type === 'risk';
+      return { value: [ii, closes[ii]], name: e.label, evDate: e.date, itemStyle: { color: eventColor(e.type) }, label: { show: true, formatter: e.label, position: isTop ? 'top' : 'bottom', fontSize: 11, color: eventColor(e.type) } };
+    });
+  }
+
+  // 共享 K 线绘制：分类轴 + 成交量 + 事件散点 + 阶段框 + 阶段高亮/变暗
+  function drawKlineGrid(containerId, idx, kd, ctx, cycleSegs, zoomStartPct, phases) {
+    const el = document.getElementById(containerId);
+    const ch = charts[containerId] || echarts.init(el); charts[containerId] = ch;
+    const dates = kd.dates;
+    const candle = dates.map((d, i) => [kd.open[i], kd.close[i], kd.low[i], kd.high[i]]);
+    const vol = dates.map((d, i) => ({ value: (kd.amt && kd.amt[i]) || 0, itemStyle: { color: kd.close[i] >= kd.open[i] ? 'rgba(184,64,47,.5)' : 'rgba(46,125,91,.5)' } }));
+    const lastC = lastValid(kd.close);
+    const evs = histEventScatter(idx, dates, kd.close, ctx);
+    // 窄屏隐藏事件文字，只保留圆点与悬浮提示，避免标签互相压叠
+    const narrow = el.clientWidth < 560;
+    if (narrow) evs.forEach(e => { if (e.label) e.label.show = false; });
+    phases = phases || [];
+    // 阶段框 / 高亮 / 变暗
+    let annoArea = buildMarkArea(cycleSegs, idx, ctx && ctx.effCycle, true, dates);
+    let hlArea = [], dimArea = [];
+    if (histPhase) {
+      const ph = phases.find(p => p.name === histPhase);
+      if (ph) {
+        const sIdx = dates.indexOf(ph.sCat), eIdx = dates.indexOf(ph.eCat);
+        if (sIdx > 0) dimArea.push([{ xAxis: dates[0], itemStyle: { color: 'rgba(250,249,246,.62)' } }, { xAxis: dates[sIdx] }]);
+        if (eIdx < dates.length - 1) dimArea.push([{ xAxis: dates[eIdx], itemStyle: { color: 'rgba(250,249,246,.62)' } }, { xAxis: dates[dates.length - 1] }]);
+        hlArea = [[{ xAxis: ph.sCat, itemStyle: { color: 'rgba(168,135,91,.10)', borderColor: '#A8875B', borderWidth: 2 } }, { xAxis: ph.eCat }]];
+      }
+    }
+    ch.setOption({
+      textStyle: CHART_OPTS.textStyle, animation: false,
+      grid: [{ left: 58, right: 18, top: 28, height: '62%' }, { left: 58, right: 18, top: '77%', height: '10%' }],
+      axisPointer: { link: [{ xAxisIndex: 'all' }] },
+      legend: { show: false },
+      tooltip: {
+        trigger: 'axis', confine: true, axisPointer: { type: 'cross', lineStyle: { color: 'rgba(20,19,19,.35)', type: 'dashed' }, label: { backgroundColor: C.accent } },
+        backgroundColor: 'rgba(255,255,255,.98)', borderColor: C.line, borderRadius: 6, textStyle: { color: C.ink, fontSize: 12 },
+        formatter: function (ps) {
+          if (!ps || !ps.length) return '';
+          const date = ps[0].axisValue;
+          let h = '';
+          const c = ps.find(p => p.seriesType === 'candlestick');
+          const evHtml = ps.filter(p => p.seriesType === 'scatter')
+            .map(p => '<div class="kt-r"><span>事件</span><b style="color:' + p.color + '">' + p.data.name + '</b></div>').join('');
+          if (c) {
+            const i = c.dataIndex;
+            const prev = i > 0 ? kd.close[i - 1] : null;
+            h = klineTipHtml(date, kd.open[i], kd.high[i], kd.low[i], kd.close[i], prev, kd.amt ? kd.amt[i] : null, evHtml);
+          } else {
+            h = '<b>' + date + '</b>' + evHtml;
+          }
+          return h;
+        }
+      },
+      xAxis: [
+        { type: 'category', data: dates, gridIndex: 0, axisLine: { lineStyle: { color: C.axis } }, axisTick: { show: false }, axisLabel: { show: false }, splitLine: { show: false } },
+        { type: 'category', data: dates, gridIndex: 1, axisLine: { lineStyle: { color: C.axis } }, axisTick: { show: false }, axisLabel: { color: C.muted, fontSize: 11, hideOverlap: true }, splitLine: { show: false } },
+      ],
+      yAxis: [
+        { type: 'value', gridIndex: 0, scale: true, splitLine: { lineStyle: { color: C.grid } }, axisLabel: { color: C.muted, fontSize: 11, formatter: fmtAxis } },
+        { type: 'value', gridIndex: 1, min: 0, splitNumber: 1, splitLine: { show: false }, axisLabel: { color: C.muted, fontSize: 10.5, formatter: fmtAxis } },
+      ],
+      dataZoom: [
+        { type: 'inside', xAxisIndex: [0, 1] },
+        { type: 'slider', xAxisIndex: [0, 1], height: 15, bottom: 4, borderColor: 'transparent', fillerColor: 'rgba(168,135,91,.14)', handleStyle: { color: C.accent }, dataBackground: { lineStyle: { color: 'rgba(20,19,19,.15)' }, areaStyle: { color: 'rgba(20,19,19,.04)' } }, textStyle: { color: C.muted, fontSize: 11 } },
+      ],
+      series: [
+        { name: idx, type: 'candlestick', xAxisIndex: 0, yAxisIndex: 0, data: candle, itemStyle: { color: C.up, color0: C.down, borderColor: C.up, borderColor0: C.down }, emphasis: { itemStyle: { borderWidth: 1.5 } } },
+        { name: '成交额', type: 'bar', xAxisIndex: 1, yAxisIndex: 1, data: vol, barWidth: '60%' },
+        { name: '__events__', type: 'scatter', xAxisIndex: 0, yAxisIndex: 0, data: evs, symbolSize: 9, z: 12, labelLayout: { hideOverlap: true }, emphasis: { itemStyle: { borderColor: '#fff', borderWidth: 2, shadowBlur: 8, shadowColor: 'rgba(0,0,0,.35)' }, label: { fontSize: 12, fontWeight: 'bold' } } },
+        { name: '__dim__', type: 'line', xAxisIndex: 0, yAxisIndex: 0, data: [], showSymbol: false, silent: true, z: 18, lineStyle: { width: 0, opacity: 0 }, itemStyle: { opacity: 0 }, markArea: { silent: true, data: dimArea } },
+        { name: '__hl__', type: 'line', xAxisIndex: 0, yAxisIndex: 0, data: [], showSymbol: false, silent: true, z: 16, lineStyle: { width: 0, opacity: 0 }, itemStyle: { opacity: 0 }, markArea: { silent: true, data: hlArea } },
+        { name: '__anno__', type: 'line', xAxisIndex: 0, yAxisIndex: 0, data: [], showSymbol: false, silent: true, z: 1, lineStyle: { width: 0, opacity: 0 }, itemStyle: { opacity: 0 },
+          markLine: { silent: true, symbol: 'none', data: [{ yAxis: lastC, lineStyle: { color: C.accentD, type: 'dashed', width: 1.5 }, label: { show: !narrow, formatter: '最新 ' + fmtNum(lastC, 2), position: 'insideEndTop', color: C.accentD, fontSize: 11.5, fontWeight: 'bold' } }] },
+          markArea: { silent: true, data: annoArea } },
+      ],
+    }, { notMerge: true });
+    if (zoomStartPct != null) ch.dispatchAction({ type: 'dataZoom', start: zoomStartPct, end: 100 });
+    else if (ctx && ctx.zoomRange) {
+      const cy = W.cycles.find(c => c.id === ctx.effCycle);
+      const i0 = cy ? nearestIdx(dates, cy.start) : 0, i1 = cy ? nearestIdx(dates, cy.end || W.asof) : dates.length - 1;
+      ch.dispatchAction({ type: 'dataZoom', startValue: dates[i0], endValue: dates[i1] });
+    } else ch.dispatchAction({ type: 'dataZoom', start: 0, end: 100 });
+    return { ch, dates, lastC };
+  }
+
+  function histToolbar(card, el, phases) {
+    let tb = card.querySelector('.chart-toolbar');
+    if (!tb) { tb = document.createElement('div'); tb.className = 'chart-toolbar'; card.insertBefore(tb, el); }
+    let h = '<div class="seg" data-modetg>' +
+      '<button data-mode="kline"' + (histMode === 'kline' ? ' class="active"' : '') + '>蜡烛图</button>' +
+      '<button data-mode="line"' + (histMode === 'line' ? ' class="active"' : '') + '>折线图</button>' +
+      '<button data-mode="all"' + (histMode === 'all' ? ' class="active"' : '') + '>多指数对比</button></div>' +
+      '<div class="seg" data-freqseg>' + ['day', 'week', 'month'].map(k => '<button data-freq="' + k + '"' + (k === histFreq ? ' class="active"' : '') + '>' + FREQ_LABEL[k] + '</button>').join('') + '</div>';
+    if (phases && phases.length) {
+      h += '<div class="seg" data-phaseseg>' + phases.map(p => '<button data-phase="' + p.name + '"' + (p.name === histPhase ? ' class="active"' : '') + '>' + (PHASE_SHORT[p.name] || p.name) + '</button>').join('') + '</div>';
+    }
+    tb.innerHTML = h;
+    $$('[data-mode]', tb).forEach(b => b.addEventListener('click', function () { histMode = b.dataset.mode; histPhase = null; renderHistory(); }));
+    $$('[data-freq]', tb).forEach(b => b.addEventListener('click', function () { histFreq = b.dataset.freq; renderHistory(); }));
+    $$('[data-phase]', tb).forEach(b => b.addEventListener('click', function () { histPhase = (histPhase === b.dataset.phase) ? null : b.dataset.phase; renderHistory(); }));
+    return tb;
+  }
+
+  function histStats(st, idx, kd, ctx, phases) {
+    const ph = (phases && histPhase) ? phases.find(p => p.name === histPhase) : null;
+    if (ph) {
+      st.innerHTML = '<span class="stat"><b>阶段</b> ' + ph.name + '</span>' +
+        '<span class="stat"><b>起止</b> ' + ph.sCat + ' ~ ' + ph.eCat + '</span>' +
+        '<span class="stat"><b>收益</b> <em class="' + (isNil(ph.ret) ? '' : ph.ret >= 0 ? 'up' : 'down') + '">' + fmtSigned(ph.ret, 1, '%') + '</em></span>' +
+        '<span class="stat"><b>最大回撤</b> <em class="down">' + (ph.mdd === 0 ? '—' : fmtSigned(ph.mdd, 1, '%')) + '</em></span>' +
+        '<span class="stat"><b>宽度</b> ' + fmtNum(ph.width, 0) + ' 交易日</span>' +
+        '<span class="stat"><b>均额</b> ' + (isNil(ph.avgVol) ? '—' : fmtNum(ph.avgVol, 0) + ' 亿元') + '</span>';
+      return;
+    }
+    const lastC = lastValid(kd.close), pctl = pctile(kd.close, lastC);
+    st.innerHTML = '<span class="stat"><b>最新收盘</b> ' + fmtNum(lastC, 2) + '</span>' +
+      '<span class="stat"><b>历史分位</b> <em class="' + pctlCls(pctl) + '">' + fmtPct(pctl, 0) + '</em></span>' +
+      '<span class="stat"><b>' + idx + '</b> ' + (ctx.effCycle ? (W.cycles.find(c => c.id === ctx.effCycle) || {}).name : '全览') + '</span>';
+  }
+
+  function renderHistoryKline(idx, el, card, tb, st, ctx, cycleSegs, kd, phases) {
+    histStats(st, idx, kd, ctx, phases);
+    drawKlineGrid('chart-history', idx, kd, ctx, cycleSegs, null, phases);
+    histChartData = { dates: kd.dates };
+  }
+
+  function renderHistoryAllKline(el, card, tb, st) {
+    const rows = ALL_INDICES.map(n => { const k = W.kline[n]; return k ? { name: n, kd: aggregateOHLC(k, histFreq) } : null; }).filter(Boolean);
+    const n = rows.length;
+    // 公共起点 = 各指数首日的最大值
+    const startDate = rows.reduce((m, r) => r.kd.dates[0] > m ? r.kd.dates[0] : m, '');
+    const dateSet = new Set();
+    rows.forEach(r => r.kd.dates.filter(d => d >= startDate).forEach(d => dateSet.add(d)));
+    const dates = Array.from(dateSet).sort();
+    rows.forEach(r => { r.map = {}; r.kd.dates.forEach((d, j) => { r.map[d] = j; }); });
+    const colors = ['#0E1F35', '#4A6FA5', '#1B3350', '#7D3C98', '#2E7D5B', '#A8875B', '#B8402F'];
+    st.innerHTML = '<span class="stat"><b>全部指数 K 线对比</b> ' + n + ' 个指数 · ' + FREQ_LABEL[histFreq] + '线</span>' +
+      '<span class="stat"><b>归一化</b> 起点=100（' + startDate + '）</span>' +
+      '<span class="stat p">图例可开关单个指数</span>';
+    const series = rows.map((r, i) => {
+      const baseIdx = Math.max(0, r.kd.dates.findIndex(d => d >= startDate));
+      const base = r.kd.close[baseIdx] || 1;
+      const data = dates.map(d => {
+        const j = r.map[d];
+        if (j == null) return [null, null, null, null];
+        return [r.kd.open[j] / base * 100, r.kd.close[j] / base * 100, r.kd.low[j] / base * 100, r.kd.high[j] / base * 100];
+      });
+      const col = colors[i % colors.length];
+      return { name: r.name, type: 'candlestick', xAxisIndex: 0, yAxisIndex: 0, data: data, itemStyle: { color: col, color0: col, borderColor: col, borderColor0: col } };
+    });
+    el.style.height = '460px';
+    const ch = charts['chart-history'] || echarts.init(el); charts['chart-history'] = ch;
+    ch.setOption({
+      textStyle: CHART_OPTS.textStyle, animation: false,
+      grid: { left: 62, right: 18, top: 44, bottom: 50 },
+      legend: { top: 0, data: rows.map(r => r.name), textStyle: { color: C.ink, fontSize: 11 }, itemWidth: 10, itemHeight: 3 },
+      tooltip: { trigger: 'axis', axisPointer: { type: 'cross', lineStyle: { color: 'rgba(20,19,19,.3)', type: 'dashed' } }, backgroundColor: 'rgba(255,255,255,.98)', borderColor: C.line, textStyle: { color: C.ink, fontSize: 11.5 },
+        formatter: function (ps) { if (!ps || !ps.length) return ''; let h = '<b>' + ps[0].axisValue + '</b>'; ps.filter(p => p.seriesType === 'candlestick').forEach(p => { h += '<br/>' + p.marker + p.seriesName + '：' + (p.data[1] == null ? '—' : fmtNum(p.data[1], 1)); }); return h; } },
+      legendHoverLink: true,
+      xAxis: { type: 'category', data: dates, axisLine: { lineStyle: { color: C.axis } }, axisTick: { show: false }, axisLabel: { color: C.muted, fontSize: 11, hideOverlap: true }, splitLine: { show: false } },
+      yAxis: { type: 'value', scale: true, splitLine: { lineStyle: { color: C.grid } }, axisLabel: { color: C.muted, fontSize: 11, formatter: fmtAxis } },
+      dataZoom: [{ type: 'inside' }, { type: 'slider', height: 14, bottom: 4, borderColor: 'transparent', fillerColor: 'rgba(168,135,91,.14)', handleStyle: { color: C.accent }, textStyle: { color: C.muted, fontSize: 11 } }],
+      series,
+    }, { notMerge: true });
+    ch.resize();
+    ch.dispatchAction({ type: 'dataZoom', start: 0, end: 100 });
+    histChartData = { dates: dates };
+  }
+  function renderHistoryLine(idx, el, card, tb, st, ctx, cycleSegs, kd, phases) {
+    if (!kd) return;
+    const dates = kd.dates, closes = kd.close;
+    const lastC = lastValid(closes); const pctl = pctile(closes, lastC);
+    st.innerHTML = '<span class="stat"><b>最新收盘</b> ' + fmtNum(lastC, 2) + '</span><span class="stat"><b>历史分位</b> <em class="' + pctlCls(pctl) + '">' + fmtPct(pctl, 0) + '</em></span><span class="stat"><b>' + idx + '</b> 收盘价折线</span>';
+    let annoArea = buildMarkArea(cycleSegs, idx, ctx.effCycle, true, dates);
+    let hlArea = [], dimArea = [];
+    if (histPhase) {
+      const ph = (phases || []).find(p => p.name === histPhase);
+      if (ph) {
+        const sIdx = dates.indexOf(ph.sCat), eIdx = dates.indexOf(ph.eCat);
+        if (sIdx > 0) dimArea.push([{ xAxis: dates[0], itemStyle: { color: 'rgba(250,249,246,.62)' } }, { xAxis: dates[sIdx] }]);
+        if (eIdx < dates.length - 1) dimArea.push([{ xAxis: dates[eIdx], itemStyle: { color: 'rgba(250,249,246,.62)' } }, { xAxis: dates[dates.length - 1] }]);
+        hlArea = [[{ xAxis: ph.sCat, itemStyle: { color: 'rgba(168,135,91,.10)', borderColor: '#A8875B', borderWidth: 2 } }, { xAxis: ph.eCat }]];
+      }
+    }
+    const evs = histEventScatter(idx, dates, closes, ctx);
+    const narrow = el.clientWidth < 560;
+    if (narrow) evs.forEach(e => { if (e.label) e.label.show = false; });
+    const ch = charts['chart-history'] || echarts.init(el); charts['chart-history'] = ch;
+    ch.setOption({
+      textStyle: CHART_OPTS.textStyle, animation: false,
+      grid: { left: 58, right: 18, top: 34, bottom: 48 },
+      legend: { show: false },
+      tooltip: { trigger: 'axis', axisPointer: { type: 'cross', lineStyle: { color: 'rgba(20,19,19,.35)', type: 'dashed' } }, backgroundColor: 'rgba(255,255,255,.98)', borderColor: C.line, textStyle: { color: C.ink, fontSize: 12 } },
+      xAxis: { type: 'category', data: dates, axisLine: { lineStyle: { color: C.axis } }, axisTick: { show: false }, axisLabel: { color: C.muted, fontSize: 11, hideOverlap: true }, splitLine: { show: false } },
+      yAxis: { type: 'value', scale: true, splitLine: { lineStyle: { color: C.grid } }, axisLabel: { color: C.muted, fontSize: 11, formatter: fmtAxis } },
+      dataZoom: [{ type: 'inside' }, { type: 'slider', height: 15, bottom: 4, borderColor: 'transparent', fillerColor: 'rgba(168,135,91,.14)', handleStyle: { color: C.accent }, textStyle: { color: C.muted, fontSize: 11 } }],
+      series: [
+        { name: idx, type: 'line', data: dates.map((d, i) => closes[i] == null ? null : closes[i]), showSymbol: false, smooth: true, connectNulls: false, lineStyle: { color: SERIES[0], width: 2 }, itemStyle: { color: SERIES[0] } },
+        { name: '__events__', type: 'scatter', data: evs, symbolSize: 9, z: 12, labelLayout: { hideOverlap: true }, emphasis: { itemStyle: { borderColor: '#fff', borderWidth: 2, shadowBlur: 8, shadowColor: 'rgba(0,0,0,.35)' }, label: { fontSize: 12, fontWeight: 'bold' } } },
+        { name: '__dim__', type: 'line', data: [], showSymbol: false, silent: true, z: 18, lineStyle: { width: 0, opacity: 0 }, itemStyle: { opacity: 0 }, markArea: { silent: true, data: dimArea } },
+        { name: '__hl__', type: 'line', data: [], showSymbol: false, silent: true, z: 16, lineStyle: { width: 0, opacity: 0 }, itemStyle: { opacity: 0 }, markArea: { silent: true, data: hlArea } },
+        { name: '__anno__', type: 'line', data: [], showSymbol: false, silent: true, z: 1, lineStyle: { width: 0, opacity: 0 }, itemStyle: { opacity: 0 },
+          markLine: { silent: true, symbol: 'none', data: [{ yAxis: lastC, lineStyle: { color: C.accentD, type: 'dashed', width: 1.5 }, label: { show: !narrow, formatter: '最新 ' + fmtNum(lastC, 2), position: 'insideEndTop', color: C.accentD, fontSize: 11.5, fontWeight: 'bold' } }] },
+          markArea: { silent: true, data: annoArea } },
+      ],
+    }, { notMerge: true });
+    histChartData = { dates: dates };
+    if (ctx.zoomRange) {
+      const i0 = nearestIdx(dates, ctx.zoomRange[0]), i1 = nearestIdx(dates, ctx.zoomRange[1]);
+      ch.dispatchAction({ type: 'dataZoom', startValue: dates[i0], endValue: dates[i1] });
+    } else ch.dispatchAction({ type: 'dataZoom', start: 0, end: 100 });
+  }
+
+  function applyHistoryRange(r) {
+    const ch = charts['chart-history'];
+    if (!ch || !histChartData || !histChartData.dates.length) return;
+    const dates = histChartData.dates;
+    if (r === 'all') { ch.dispatchAction({ type: 'dataZoom', start: 0, end: 100 }); return; }
+    const sd = rangeStartDate(dates, r);
+    const i = nearestIdx(dates, sd);
+    ch.dispatchAction({ type: 'dataZoom', startValue: dates[i], endValue: dates[dates.length - 1] });
+  }
+
+  function renderHistory() {
+    const _hch = charts['chart-history'];
+    if (_hch) { try { _hch.dispatchAction({ type: 'hideTip' }); } catch (e) { } }
+    const idx = histIndex;
+    const el = document.getElementById('chart-history');
+    const card = el.closest('.chart-card');
+    const key = idx;
+    const ctx = cycleContext(key);
+    const cycleSegs = W.index_cycles[key] || W.index_cycles['上证指数'];
+    const isAll = histMode === 'all';
+    const isKline = !isAll && histMode === 'kline';
+    let kd = null, phases = [];
+    if (!isAll) { const kk = W.kline[idx]; if (kk) { kd = aggregateOHLC(kk, histFreq); phases = buildPhaseList(idx, kd, ctx); } }
+    const tb = histToolbar(card, el, phases);
+    let st = card.querySelector('.chart-stats');
+    if (!st) { st = document.createElement('div'); st.className = 'chart-stats'; card.insertBefore(st, el); }
+    if (isAll) { el.style.height = ''; renderHistoryAllKline(el, card, tb, st); }
+    else if (isKline && kd) {
+      el.style.height = '';
+      if (charts['chart-history']) charts['chart-history'].resize();  // 从「全部」的 460px 切回 430px
+      renderHistoryKline(idx, el, card, tb, st, ctx, cycleSegs, kd, phases);
+    } else {
+      el.style.height = '';
+      if (charts['chart-history']) charts['chart-history'].resize();
+      renderHistoryLine(idx, el, card, tb, st, ctx, cycleSegs, kd, phases);
+    }
+    if (historyFirstRender) { historyFirstRender = false; applyHistoryRange(SCOPE.range); }
+  }
+
+  // ---------- 首页迷你走势 ----------
+  function renderHeroChart() {
+    const el = document.getElementById('hero-chart');
+    if (!el) return;
+    const ch = charts['hero-chart'] || echarts.init(el);
+    charts['hero-chart'] = ch;
+    const idx = W.main; const dates = idx.dates, vals = idx['上证指数'];
+    const xs = dates.map(ts);
+    const segs = W.index_cycles['上证指数'];
+    ch.setOption({
+      textStyle: CHART_OPTS.textStyle,
+      grid: { left: 0, right: 0, top: 6, bottom: 0 },
+      xAxis: { type: 'time', show: false },
+      yAxis: { type: 'value', show: false, scale: true },
+      series: [{
+        type: 'line', data: xs.map((t, i) => [t, vals[i]]), showSymbol: false, smooth: true,
+        lineStyle: { color: '#0E1F35', width: 2 },
+        areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(14,31,53,.10)' }, { offset: 1, color: 'rgba(14,31,53,0)' }] } },
+        markArea: { silent: true, data: segs.map(sg => [
+          { xAxis: ts(sg[1]), itemStyle: { color: sg[0] === 'bull' ? 'rgba(184,147,92,.12)' : 'rgba(96,116,142,.11)' } },
+          { xAxis: ts(sg[2]) },
+        ]) },
+      }]
+    });
+    let lastV = null; for (let i = vals.length - 1; i >= 0; i--) { if (vals[i] != null) { lastV = vals[i]; break; } }
+    document.getElementById('hero-val').textContent = fmtNum(lastV, 0);
+    const chgEl = document.getElementById('hero-chg');
+    let ytd = null;
+    const dd = W.main_daily, dv = dd['上证指数'], yr = W.asof.slice(0, 4);
+    const bi = dd.dates.findIndex(d => d >= yr + '-01-01');
+    if (bi >= 0 && dv[bi] != null && lastV != null) ytd = (lastV / dv[bi] - 1) * 100;
+    if (ytd == null) { chgEl.textContent = '—'; chgEl.className = 'chg'; }
+    else { chgEl.textContent = fmtSigned(ytd, 1, '%') + ' 今年以来'; chgEl.className = 'chg ' + (ytd >= 0 ? 'up' : 'down'); }
+  }
+
+  const CYCLE_ICONS = {
+    c0508: '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M5 21V11l4 2 3-4 4 5 3-3v10"/><path d="M8 15v3M14 14v3"/></svg>',
+    c1315: '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12a10 10 0 0114 0M8 15a6 6 0 018 0"/><circle cx="12" cy="18" r="1"/></svg>',
+    c1618: '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4h12l4 6-10 10L2 10z"/><path d="M2 10h20M9 4l3 6 3-6"/></svg>',
+    c1921: '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L4 14h6l-1 8 9-12h-6z"/></svg>',
+    c24now: '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="7" width="10" height="10" rx="1.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></svg>',
+  };
+  function renderCycleTabs() {
+    const box = document.getElementById('cycle-tabs');
+    box.innerHTML = W.cycles.map((cy, i) => '<div class="cycle-tab" data-i="' + i + '" data-id="' + cy.id + '">' + (CYCLE_ICONS[cy.id] || '') + '<span class="txt"><span class="n">' + cy.name + '</span><span class="t">' + cy.type + ' · ' + cy.theme + '</span></span></div>').join('');
+    $$('.cycle-tab', box).forEach(tab => tab.addEventListener('click', function () {
+      $$('.cycle-tab', box).forEach(t => t.classList.remove('active')); tab.classList.add('active');
+      const cy = W.cycles[+tab.dataset.i];
+      histCycle = cy.id;
+      renderCycleDetail(cy);
+      renderHistory();
+    }));
+  }
+
+  // ---------- 牛熊复盘：按自然两个月分段（无事件的月份也保留） ----------
+  const pad2 = n => String(n).padStart(2, '0');
+  function twoMonthBuckets(cy, evThis) {
+    const end = cy.end || W.asof;
+    const out = [];
+    let y = +cy.start.slice(0, 4);
+    let bm = Math.floor((+cy.start.slice(5, 7) - 1) / 2) * 2 + 1;
+    const ey = +end.slice(0, 4), em = +end.slice(5, 7);
+    while (y < ey || (y === ey && bm <= em)) {
+      const emo = bm + 1;
+      const start = y + '-' + pad2(bm) + '-01';
+      const fin = y + '-' + pad2(emo) + '-' + pad2(new Date(y, emo, 0).getDate());
+      out.push({
+        key: y + '-' + pad2(bm),
+        label: y + '.' + pad2(bm) + '–' + pad2(emo),
+        start, end: fin,
+        events: evThis.filter(e => e.date >= start && e.date <= fin),
+      });
+      bm += 2; if (bm > 12) { bm = 1; y++; }
+    }
+    return out;
+  }
+  function lowerBound(dates, ds) {
+    let lo = 0, hi = dates.length;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (dates[mid] < ds) lo = mid + 1; else hi = mid; }
+    return lo;
+  }
+  function rowsBetween(kd, start, end) {
+    const out = [];
+    if (!kd || !kd.dates) return out;
+    for (let i = lowerBound(kd.dates, start); i < kd.dates.length && kd.dates[i] <= end; i++) {
+      if (kd.close[i] != null) out.push({ d: kd.dates[i], o: kd.open[i], h: kd.high[i], l: kd.low[i], c: kd.close[i], amt: kd.amt ? kd.amt[i] : null });
+    }
+    return out;
+  }
+  function nearestRow(rows, ds) {
+    if (!rows.length) return null;
+    let lo = 0, hi = rows.length - 1;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (rows[mid].d < ds) lo = mid + 1; else hi = mid; }
+    if (lo > 0) {
+      const a = rows[lo - 1], b = rows[lo];
+      return Math.abs(ts(b.d) - ts(ds)) < Math.abs(ts(a.d) - ts(ds)) ? b : a;
+    }
+    return rows[lo];
+  }
+  // 窄屏内嵌走势：累计涨跌幅形状 + 事件刻度，纯 SVG，不增加图表实例
+  function sparkSvg(rows, events) {
+    if (rows.length < 2) return '';
+    const Wd = 600, H = 58, P = 4;
+    const base = rows[0].c;
+    if (!base) return '';
+    const vals = rows.map(r => (r.c / base - 1) * 100);
+    let min = Math.min.apply(null, vals), max = Math.max.apply(null, vals);
+    if (min === max) { min -= 1; max += 1; }
+    const X = i => P + i * (Wd - 2 * P) / (rows.length - 1);
+    const Y = v => H - P - (v - min) / (max - min) * (H - 2 * P);
+    const pts = rows.map((r, i) => (i ? 'L' : 'M') + X(i).toFixed(1) + ' ' + Y(vals[i]).toFixed(1)).join(' ');
+    const area = pts + ' L ' + X(rows.length - 1).toFixed(1) + ' ' + (H - P) + ' L ' + X(0).toFixed(1) + ' ' + (H - P) + ' Z';
+    let zero = '';
+    if (min < 0 && max > 0) {
+      const zy = Y(0).toFixed(1);
+      zero = '<line x1="' + P + '" y1="' + zy + '" x2="' + (Wd - P) + '" y2="' + zy + '" stroke="rgba(20,19,19,.18)" stroke-width="1" stroke-dasharray="2 3" vector-effect="non-scaling-stroke"/>';
+    }
+    const ticks = events.map(e => {
+      const row = nearestRow(rows, e.date); if (!row) return '';
+      const i = rows.indexOf(row);
+      const x = X(i).toFixed(1), y = Y(vals[i]);
+      return '<line x1="' + x + '" x2="' + x + '" y1="' + (y - 4).toFixed(1) + '" y2="' + (y + 4).toFixed(1) +
+        '" stroke="' + eventColor(e.type) + '" stroke-width="2" stroke-linecap="round" vector-effect="non-scaling-stroke"/>';
+    }).join('');
+    return '<svg viewBox="0 0 ' + Wd + ' ' + H + '" preserveAspectRatio="none" aria-hidden="true">' +
+      '<path d="' + area + '" fill="rgba(14,31,53,.05)"/>' + zero +
+      '<path d="' + pts + '" fill="none" stroke="#0E1F35" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>' +
+      ticks + '</svg>';
+  }
+  // ---------- 阶段综述：嵌入对应日期的时间轴分组 ----------
+  function stripHtml(html) {
+    return String(html || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+  function stageAnchors(cy) {
+    const segs = cy.segments || [];
+    const bull = segs.find(s => s.type === 'bull') || { start: cy.start, end: cy.peak };
+    const bear = segs.find(s => s.type === 'bear') || { start: cy.peak, end: cy.end || W.asof };
+    const a = cy.analysis || {};
+    return [
+      { key: 'bottom', title: '1）底部环境', date: cy.start, tone: 'bottom', body: a.bottom || '' },
+      { key: 'bull', title: '2）牛市阶段', date: bull.start, tone: 'bull', body: a.bull || '' },
+      { key: 'peak', title: '3）牛市顶点', date: bull.end, tone: 'peak', body: a.peak || '' },
+      { key: 'bear', title: '4）转熊', date: bear.start, tone: 'bear', body: a.bear || '' },
+    ];
+  }
+  function stageHtml(st) {
+    return '<details class="tl-stage ' + st.tone + '">' +
+      '<summary><span class="st-dot"></span>' +
+      '<span class="st-title">' + st.title + '</span>' +
+      '<span class="st-date">' + st.date + '</span>' +
+      '<span class="st-preview">' + stripHtml(st.body).slice(0, 58) + '…</span>' +
+      '<span class="st-toggle"><span class="st-open">展开</span><span class="st-close">收起</span></span>' +
+      '</summary><div class="st-body">' + st.body + '</div></details>';
+  }
+
+  // ---------- Cycle Snapshot：选中周期后的阶段统计 ----------
+  function monthDiff(a, b) {
+    const A = new Date(a + 'T00:00:00'), B = new Date(b + 'T00:00:00');
+    return (B.getFullYear() - A.getFullYear()) * 12 + (B.getMonth() - A.getMonth());
+  }
+  function fmtDuration(months, days) {
+    if (months <= 0) return (days || 0) + ' 天';
+    if (months < 12) return months + ' 个月';
+    const y = Math.floor(months / 12), m = months % 12;
+    return y + ' 年' + (m ? ' ' + m + ' 个月' : '');
+  }
+  function phaseIndexStats(start, end) {
+    const rows = rowsBetween(W.kline && W.kline['上证指数'], start, end);
+    if (!rows.length) return null;
+    const first = rows[0], last = rows[rows.length - 1];
+    let peak = first.c, peakDate = first.d, mdd = 0, ddFrom = first.d, ddTo = first.d;
+    let trough = first.c, troughDate = first.d, mrb = 0, rbFrom = first.d, rbTo = first.d;
+    let high = first, low = first;
+    rows.forEach(r => {
+      if (r.c > peak) { peak = r.c; peakDate = r.d; }
+      const dd = r.c / peak - 1;
+      if (dd < mdd) { mdd = dd; ddFrom = peakDate; ddTo = r.d; }
+      if (r.c < trough) { trough = r.c; troughDate = r.d; }
+      const rb = r.c / trough - 1;
+      if (rb > mrb) { mrb = rb; rbFrom = troughDate; rbTo = r.d; }
+      if (r.c > high.c) high = r;
+      if (r.c < low.c) low = r;
+    });
+    return {
+      rows, first, last, high, low,
+      ret: (last.c / first.c - 1) * 100,
+      months: monthDiff(start, end),
+      mdd: mdd * 100, ddFrom, ddTo,
+      mrb: mrb * 100, rbFrom, rbTo,
+    };
+  }
+  // 熊市结束之后，首次收盘回到前高；避免把见顶后一两天的反抽当作“消化完成”
+  function findRecovery(peakDate, bearEnd, peakClose) {
+    const kd = W.kline && W.kline['上证指数'];
+    if (!kd || !kd.dates || peakClose == null) return null;
+    let i = lowerBound(kd.dates, bearEnd);
+    if (i < kd.dates.length && kd.dates[i] === bearEnd) i++;
+    for (; i < kd.dates.length; i++) {
+      if (kd.close[i] != null && kd.close[i] >= peakClose) return { date: kd.dates[i], close: kd.close[i] };
+    }
+    return null;
+  }
+  function csMetric(label, value, sub, cls) {
+    return '<div class="cs-metric"><span>' + label + '</span>' +
+      '<b class="' + (cls || '') + '">' + value + '</b><em>' + sub + '</em></div>';
+  }
+  function csRows(items, kind) {
+    if (!items || !items.length) return '<div class="cs-empty">暂无样本</div>';
+    return items.map((x, i) => {
+      const retCls = x.ret >= 0 ? 'up' : 'down';
+      if (kind === 'industry') {
+        return '<div class="cs-row ind"><span class="cs-rank">' + (i + 1) + '</span>' +
+          '<span class="cs-name">' + x.name + '</span>' +
+          '<span class="cs-n">' + x.n + ' 只</span>' +
+          '<span class="cs-ret ' + retCls + '">' + fmtSigned(x.ret, 1, '%') + '</span></div>';
+      }
+      return '<div class="cs-row"><span class="cs-rank">' + (i + 1) + '</span>' +
+        '<span class="cs-name">' + x.name +
+        '<em>' + x.code + '</em>' +
+        (x.delisted ? '<i class="cs-del">退</i>' : '') +
+        (x.industry ? '<span class="cs-ind">' + x.industry + '</span>' : '') +
+        '</span>' +
+        '<span class="cs-ret ' + retCls + '">' + fmtSigned(x.ret, 1, '%') + '</span></div>';
+    }).join('');
+  }
+  function cycleSnapshotHtml(cy) {
+    const CS = W.cycle_stats && W.cycle_stats.cycles && W.cycle_stats.cycles[cy.id];
+    if (!CS) return '';
+    const segs = cy.segments || [];
+    const bullSeg = segs.find(s => s.type === 'bull') || { start: cy.start, end: cy.peak };
+    const bearSeg = segs.find(s => s.type === 'bear') || { start: cy.peak, end: cy.end || W.asof };
+    const bull = phaseIndexStats(bullSeg.start, bullSeg.end);
+    const bear = phaseIndexStats(bearSeg.start, bearSeg.end);
+    if (!bull || !bear) return '';
+
+    const ongoing = !cy.end || cy.id === 'c24now';
+    const bearLabel = ongoing ? '调整阶段 · 进行中' : '熊市阶段';
+    const bearWord = ongoing ? '调整' : '熊市';
+    const recovery = findRecovery(bullSeg.end, bearSeg.end, bull.high.c);
+
+    const bullHtml = '<div class="cs-phase bull">' +
+      '<div class="cs-phase-h"><span class="cs-dot"></span><b>牛市阶段</b><span>' + bullSeg.start + ' → ' + bullSeg.end + '</span></div>' +
+      '<div class="cs-metrics">' +
+      csMetric('历时', fmtDuration(bull.months), bull.rows.length + ' 个交易日') +
+      csMetric('涨幅', fmtSigned(bull.ret, 1, '%'), fmtNum(bull.first.c, 0) + ' → ' + fmtNum(bull.last.c, 0), 'up') +
+      csMetric('最大回撤', fmtSigned(bull.mdd, 1, '%'), bull.ddFrom + ' → ' + bull.ddTo, 'down') +
+      csMetric('区间高点', fmtNum(bull.high.c, 0), bull.high.d, '') +
+      '</div></div>';
+
+    const bearHtml = '<div class="cs-phase bear">' +
+      '<div class="cs-phase-h"><span class="cs-dot"></span><b>' + bearLabel + '</b><span>' + bearSeg.start + ' → ' + bearSeg.end + '</span></div>' +
+      '<div class="cs-metrics">' +
+      csMetric('历时', fmtDuration(bear.months), bear.rows.length + ' 个交易日') +
+      csMetric('跌幅', fmtSigned(bear.ret, 1, '%'), fmtNum(bear.first.c, 0) + ' → ' + fmtNum(bear.last.c, 0), 'down') +
+      csMetric('最大反弹', fmtSigned(bear.mrb, 1, '%'), bear.rbFrom + ' → ' + bear.rbTo, 'up') +
+      csMetric('区间低点', fmtNum(bear.low.c, 0), bear.low.d, '') +
+      '</div></div>';
+
+    const recTxt = recovery
+      ? '见顶后约 ' + fmtDuration(monthDiff(bullSeg.end, recovery.date)) + ' 收复前高（' + recovery.date + '）'
+      : (ongoing ? '尚未收复前高，仍在消化中' : '至今未收复前高');
+    const digestTxt = (ongoing ? '调整已持续 ' : '熊市历时 ') + fmtDuration(bear.months) + '，' + recTxt;
+    const endLabel = ongoing ? '当前' : '终结';
+    const summary = '<div class="cs-summary"><div class="cs-summary-h">小结 · 启动、终结与消化</div>' +
+      '<p><b>启动</b>：' + CS.start_cause + '。<b>' + endLabel + '</b>：' + CS.end_cause + '。' +
+      '<b>消化</b>：' + digestTxt + '。</p></div>';
+
+    const listHtml = '<div class="cs-lists">' +
+      '<section class="cs-list"><div class="cs-list-h"><h3>牛市 · 行业 Top10</h3><span>申万一级 · 等权</span></div>' +
+      '<div class="cs-table"><div class="cs-row ind head"><span>#</span><span>行业</span><span>样本</span><span>涨幅</span></div>' +
+      csRows(CS.bull.industries, 'industry') + '</div></section>' +
+      '<section class="cs-list"><div class="cs-list-h"><h3>牛市 · 个股 Top10</h3><span>剔除新股 · 复权</span></div>' +
+      '<div class="cs-table"><div class="cs-row head"><span>#</span><span>个股</span><span>涨幅</span></div>' +
+      csRows(CS.bull.stocks, 'stock') + '</div></section>' +
+      '<section class="cs-list"><div class="cs-list-h"><h3>' + bearWord + ' · 行业跌幅 Top10</h3><span>申万一级 · 等权</span></div>' +
+      '<div class="cs-table"><div class="cs-row ind head"><span>#</span><span>行业</span><span>样本</span><span>跌幅</span></div>' +
+      csRows(CS.bear.industries_bottom, 'industry') + '</div></section>' +
+      '<section class="cs-list"><div class="cs-list-h"><h3>' + bearWord + ' · 个股跌幅 Top10</h3><span>剔除新股 · 复权</span></div>' +
+      '<div class="cs-table"><div class="cs-row head"><span>#</span><span>个股</span><span>跌幅</span></div>' +
+      csRows(CS.bear.stocks_bottom, 'stock') + '</div></section>' +
+      '</div>';
+
+    return '<section class="cycle-snapshot">' +
+      '<div class="cs-head"><div><div class="cs-kicker">Cycle Snapshot · 阶段统计</div>' +
+      '<h2 class="cs-title">' + cy.name + ' <span>' + cy.type + (cy.theme ? ' · ' + cy.theme : '') + '</span></h2></div>' +
+      '<div class="cs-badge">指数口径 · 上证指数</div></div>' +
+      '<div class="cs-phases">' + bullHtml + bearHtml + '</div>' +
+      listHtml + summary +
+      '<div class="cs-note">口径：指数为上证指数收盘价；行业为申万一级（当前分类回溯）等权，样本少于 5 只不参与排名；个股为沪深A股复权价，剔除阶段内上市新股，仅统计阶段起止均有行情的个股，含已退市个股。历史统计仅供参考，不构成投资建议。</div>' +
+      '</section>';
+  }
+
+  // 左侧事件：合并所有已有股指的事件；拐点统一取上证口径，
+  // 避免同一轮底部在时间轴里出现 7 个不同点位。
+  function mergedCycleEvents(cy) {
+    const end = cy.end || W.asof;
+    const inWin = e => e.date >= cy.start && e.date <= end;
+    const out = [], seen = new Set();
+    const push = e => {
+      const key = e.date + '|' + e.label;
+      if (seen.has(key)) return;
+      seen.add(key); out.push(e);
+    };
+    Object.keys(W.index_events || {}).forEach(n => {
+      (W.index_events[n] || []).filter(e => e.kind !== 'tp' && inWin(e)).forEach(push);
+    });
+    ((W.index_events && W.index_events['上证指数']) || [])
+      .filter(e => e.kind === 'tp' && inWin(e)).forEach(push);
+    out.sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+    return out;
+  }
+
+  // 右侧两月视图的数据：按当前基准指数实时取，未上市则返回空 rows
+  function lensDataFor(b) {
+    const st = cycleLensState;
+    const kd = W.kline && W.kline[st.iname];
+    const rows = rowsBetween(kd, b.start, b.end);
+    const base = rows.length ? rows[0].c : null;
+    const last = rows.length ? rows[rows.length - 1].c : null;
+    const ret = (base != null && last != null && base !== 0) ? (last / base - 1) * 100 : null;
+    const byDate = {}, evByRow = {}, evPts = [], rowByDate = {};
+    b.events.forEach(e => { (byDate[e.date] = byDate[e.date] || []).push(e); });
+    rows.forEach(r => { rowByDate[r.d] = r; });
+    Object.keys(byDate).sort().forEach(d => {
+      const row = nearestRow(rows, d);
+      if (!row) return;  // 该指数此时无行情，事件不画点
+      evByRow[row.d] = (evByRow[row.d] || []).concat(byDate[d]);
+      evPts.push({
+        value: [lensMode === 'kline' ? row.d : ts(d),
+          lensMode === 'kline' ? row.c : (row.c / base - 1) * 100],
+        name: d, evs: byDate[d],
+        itemStyle: { color: eventColor(byDate[d][0].type) },
+      });
+    });
+    return { rows, base, last, ret, byDate, evPts, evByRow, rowByDate };
+  }
+
+  function renderCycleDetail(cy) {
+    const box = document.getElementById('cycle-detail');
+    if (!box) return;
+    disposeChartsIn(box);
+    const events = mergedCycleEvents(cy);
+    const refKd = W.kline && W.kline['上证指数'];
+    const buckets = twoMonthBuckets(cy, events);
+    const stages = stageAnchors(cy);
+    let totalEv = 0;
+    buckets.forEach(b => {
+      b.refRows = rowsBetween(refKd, b.start, b.end);
+      b.refBase = b.refRows.length ? b.refRows[0].c : null;
+      b.refLast = b.refRows.length ? b.refRows[b.refRows.length - 1].c : null;
+      b.refRet = (b.refBase != null && b.refLast != null && b.refBase !== 0)
+        ? (b.refLast / b.refBase - 1) * 100 : null;
+      b.spark = sparkSvg(b.refRows, b.events);
+      b.stages = stages.filter(st => st.date >= b.start && st.date <= b.end);
+      totalEv += b.events.length;
+    });
+    const lensIdx = (SCOPE.index === '全部' || !SCOPE.index) ? '上证指数' : SCOPE.index;
+    const head = '<div class="card-head"><h2>' + cy.name + ' · ' + cy.type + '</h2>' +
+      '<span class="asof">' + cy.start + ' — ' + (cy.end || '至今') + '</span></div>';
+    const sub = '<div class="cycle-sub">' + buckets.length + ' 个两月分段 · ' +
+      (totalEv ? totalEv + ' 个关键事件' : '暂无关键事件') +
+      ' · 点位与涨跌幅参照上证指数</div>';
+
+    let gHtml = '';
+    buckets.forEach((b, i) => {
+      const has = b.refRows.length > 0;
+      const chgCls = b.refRet == null ? 'flat' : (b.refRet > 0.05 ? 'up' : b.refRet < -0.05 ? 'down' : 'flat');
+      const chgTxt = b.refRet == null ? '—' : (Math.abs(b.refRet) < 0.05 ? '0.0%' : fmtSigned(b.refRet, 1, '%'));
+      const rangeTxt = has ? '上证 ' + fmtNum(b.refBase, 0) + ' → ' + fmtNum(b.refLast, 0) : '无行情';
+      const evHtml = b.events.length
+        ? '<div class="tl-events">' + b.events.map(e =>
+            '<div class="ev-item" data-date="' + e.date + '" data-label="' + String(e.label).replace(/"/g, '&quot;') + '">' +
+            '<span class="ev-dot ' + e.type + '"></span><span class="ev-date">' + e.date.slice(5) + '</span>' +
+            '<span class="ev-label">' + e.label + '</span></div>').join('') + '</div>'
+        : '';
+      gHtml += '<div class="tl-group" data-key="' + b.key + '" data-i="' + i + '">' +
+        '<div class="tl-head">' +
+        '<span class="tl-period">' + b.label + '</span>' +
+        '<span class="tl-range">' + rangeTxt + '</span>' +
+        '<span class="tl-chg ' + chgCls + '">' + chgTxt + '</span>' +
+        '<span class="tl-count' + (b.events.length ? '' : ' zero') + '">' +
+        (b.events.length ? b.events.length + ' 事件' : '暂无事件') + '</span>' +
+        '</div>' +
+        (b.stages.length ? b.stages.map(stageHtml).join('') : '') +
+        evHtml +
+        (b.spark ? '<div class="tl-spark">' + b.spark + '</div>' : '') +
+        '</div>';
+    });
+
+    box.innerHTML = cycleSnapshotHtml(cy) + '<div class="chart-card">' + head + sub +
+      '<div class="cycle-layout">' +
+      '<div class="cycle-main">' + gHtml + '</div>' +
+      '<aside class="cycle-aside"><div class="lens-card">' +
+      '<div class="lens-top"><div class="lens-kicker">Two-Month Lens · 指数对照</div>' +
+      '<div class="lens-mode" id="lens-mode">' +
+      '<button data-lmode="line"' + (lensMode === 'line' ? ' class="active"' : '') + '>走势</button>' +
+      '<button data-lmode="kline"' + (lensMode === 'kline' ? ' class="active"' : '') + '>K线</button>' +
+      '</div></div>' +
+      '<div class="lens-head"><div class="lens-period" id="lens-period">—</div>' +
+      '<div class="lens-idx" id="lens-idx">' + lensIdx + '</div></div>' +
+      '<div class="lens-stats" id="lens-stats"></div>' +
+      '<div class="lens-plot"><div class="chart" id="cycle-lens" style="height:252px"></div>' +
+      '<div class="lens-empty" id="lens-empty" hidden><span id="lens-empty-txt">该指数此区间暂无行情</span></div></div>' +
+      '<div class="lens-foot"><span class="lens-note" id="lens-note">—</span></div>' +
+      '<div class="lens-hint">滚动左栏自动切换；点选事件在图中定位。底部灰线为本轮全周期，金色为本段。</div>' +
+      '</div></aside></div></div>';
+
+    cycleLensState = {
+      cy, iname: lensIdx, buckets,
+      overview: rowsBetween(W.kline && W.kline[lensIdx], cy.start, cy.end || W.asof),
+      activeKey: null,
+    };
+
+    $$('[data-lmode]', box).forEach(btn => btn.addEventListener('click', function () {
+      if (lensMode === btn.dataset.lmode) return;
+      lensMode = btn.dataset.lmode;
+      $$('[data-lmode]', box).forEach(x => x.classList.toggle('active', x === btn));
+      const st = cycleLensState;
+      const b = st && st.buckets.find(x => x.key === st.activeKey);
+      if (b) renderCycleLens(b);
+    }));
+    $$('.ev-item', box).forEach(it => it.addEventListener('click', function () { selectCycleEvent(it); }));
+
+    if (document.body.dataset.view === 'history') {
+      requestAnimationFrame(function () { updateCycleLens(true); });
+    }
+  }
+
+  // 点选事件：不跳主图，只把右侧两月窗口切到该段并弹出对应位置
+  function selectCycleEvent(item) {
+    const st = cycleLensState;
+    const box = document.getElementById('cycle-detail');
+    if (!st || !box) return;
+    const group = item.closest('.tl-group');
+    const b = group && st.buckets.find(x => x.key === group.dataset.key);
+    if (!b) return;
+    $$('.ev-item', box).forEach(x => x.classList.toggle('sel', x === item));
+    if (st.activeKey !== b.key) {
+      st.activeKey = b.key;
+      $$('.tl-group', box).forEach(g => g.classList.toggle('active', g === group));
+    }
+    const ld = renderCycleLens(b);
+    if (!ld) return;
+    const row = nearestRow(ld.rows, item.dataset.date);
+    if (!row) return;
+    const di = (lensMode === 'kline' && ld.catDates)
+      ? ld.catDates.indexOf(row.d) : ld.rows.indexOf(row);
+    const ch = charts['cycle-lens'];
+    if (ch && di >= 0) {
+      setTimeout(function () {
+        try { ch.dispatchAction({ type: 'showTip', seriesIndex: 0, dataIndex: di }); } catch (e) { }
+      }, 40);
+    }
+  }
+
+  function renderCycleLens(b) {
+    const st = cycleLensState;
+    if (!st || !b) return null;
+    const periodEl = document.getElementById('lens-period');
+    const idxEl = document.getElementById('lens-idx');
+    const statsEl = document.getElementById('lens-stats');
+    const noteEl = document.getElementById('lens-note');
+    const emptyEl = document.getElementById('lens-empty');
+    const emptyTxt = document.getElementById('lens-empty-txt');
+    const el = document.getElementById('cycle-lens');
+    if (!el) return null;
+    const ld = lensDataFor(b);
+    const has = ld.rows.length > 0;
+    const evTxt = b.events.length ? b.events.length + ' 个关键事件' : '本段暂无关键事件';
+    if (periodEl) periodEl.textContent = b.label;
+    if (idxEl) idxEl.textContent = st.iname;
+    if (statsEl) {
+      statsEl.innerHTML = has
+        ? '<span><b>' + fmtNum(ld.base, 0) + '</b> → <b>' + fmtNum(ld.last, 0) + '</b></span>' +
+          '<span class="' + (ld.ret == null ? '' : ld.ret > 0.05 ? 'up' : ld.ret < -0.05 ? 'down' : '') + '">' +
+          (ld.ret == null ? '—' : (Math.abs(ld.ret) < 0.05 ? '0.0%' : fmtSigned(ld.ret, 2, '%'))) + '</span>' +
+          '<span class="ev">' + evTxt + '</span>'
+        : '<span class="ev">暂无行情 · ' + evTxt + '</span>';
+    }
+    const kd = W.kline && W.kline[st.iname];
+    const first = kd && kd.dates && kd.dates[0];
+    if (emptyTxt) {
+      emptyTxt.textContent = (first && first > b.end)
+        ? st.iname + ' 自 ' + first + ' 起有行情'
+        : '该指数此区间暂无行情';
+    }
+    if (emptyEl) emptyEl.hidden = has;
+    if (noteEl) noteEl.textContent = has ? ld.rows.length + ' 个交易日' : '无行情数据';
+    if (el.clientWidth < 50) return null;  // 窄屏/隐藏容器不按 0 宽初始化
+
+    const winEnd = b.end < W.asof ? b.end : W.asof;
+    const ov = st.overview || [];
+    const ovData = ov.map(r => [ts(r.d), r.c]);
+    let band = [];
+    if (ov.length) {
+      const a = Math.max(ts(b.start), ts(ov[0].d));
+      const z = Math.min(ts(b.end), ts(ov[ov.length - 1].d));
+      if (z > a) band = [[{ xAxis: a, itemStyle: { color: 'rgba(168,135,91,.30)' } }, { xAxis: z }]];
+    }
+    const axisDate = v => { const d = new Date(v); return pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); };
+    const isK = lensMode === 'kline';
+    let catDates = [], candleData = [];
+    if (isK) {
+      // K 线用上证交易日做市场日历，指数尚未上市时也能保留两月框架
+      const cal = rowsBetween(W.kline && W.kline['上证指数'], b.start, winEnd);
+      catDates = cal.map(r => r.d);
+      if (!catDates.length) catDates = ld.rows.map(r => r.d);
+      candleData = catDates.map(d => {
+        const r = ld.rowByDate[d];
+        return r ? [r.o, r.c, r.l, r.h] : '-';
+      });
+    }
+    const lineData = ld.base ? ld.rows.map(r => [ts(r.d), (r.c / ld.base - 1) * 100]) : [];
+    const ch = charts['cycle-lens'] || echarts.init(el);
+    charts['cycle-lens'] = ch;
+    ch.setOption({
+      textStyle: CHART_OPTS.textStyle,
+      animation: false,
+      grid: [
+        { left: 48, right: 18, top: 12, bottom: 72 },
+        { left: 48, right: 18, height: 22, bottom: 10 },
+      ],
+      tooltip: {
+        trigger: 'axis', confine: true,
+        axisPointer: { type: 'cross', lineStyle: { color: 'rgba(20,19,19,.3)', type: 'dashed' }, label: { backgroundColor: C.accent } },
+        backgroundColor: 'rgba(255,255,255,.98)', borderColor: C.line, borderRadius: 4,
+        textStyle: { color: C.ink, fontSize: 11.5 },
+        formatter: function (ps) {
+          if (!ps || !ps.length) return '';
+          if (isK) {
+            const ds = ps[0].axisValue;
+            const row = ld.rowByDate[ds];
+            if (!row) {
+              return '<div class="k-tip"><div class="k-tip-d">' + ds + '</div>' +
+                '<div class="kt-r"><span>行情</span><b class="kt-flat">该指数此日无行情</b></div></div>';
+            }
+            const ri = ld.rows.indexOf(row);
+            const prev = ri > 0 ? ld.rows[ri - 1] : null;
+            const evHtml = (ld.evByRow[ds] || []).map(e =>
+              '<div class="kt-r"><span>事件</span><b style="color:' + eventColor(e.type) + '">' + e.label + '</b></div>').join('');
+            return klineTipHtml(ds, row.o, row.h, row.l, row.c, prev ? prev.c : null, row.amt, evHtml);
+          }
+          const p = (ps || []).find(x => x.seriesName === st.iname);
+          if (!p || !p.value) return '';
+          const ds = fmtDate(p.value[0]);
+          const row = ld.rows[p.dataIndex];
+          const pct = p.value[1];
+          let h = '<b>' + ds + '</b><br/>' + st.iname + ' ' + fmtNum(row ? row.c : null, 2) +
+            '　<span style="color:' + (pct >= 0 ? C.up : C.down) + ';font-weight:700">' + fmtSigned(pct, 2, '%') + '</span>';
+          const evs = ld.evByRow[ds];
+          if (evs) evs.forEach(e => { h += '<br/><span style="color:' + eventColor(e.type) + '">●</span> ' + e.label; });
+          return h;
+        },
+      },
+      xAxis: isK ? [
+        { type: 'category', data: catDates, gridIndex: 0, axisLine: { lineStyle: { color: C.axis } }, axisTick: { show: false },
+          axisLabel: { color: C.muted, fontSize: 10.5, hideOverlap: true, formatter: v => String(v).slice(5) },
+          axisPointer: { label: { formatter: function (p) { return String(p.value); } } },
+          splitLine: { show: false } },
+        { type: 'time', gridIndex: 1, show: false },
+      ] : [
+        { type: 'time', gridIndex: 0, min: ts(b.start), max: ts(winEnd), splitNumber: 4,
+          axisLine: { lineStyle: { color: C.axis } }, axisTick: { show: false },
+          axisLabel: { color: C.muted, fontSize: 10.5, hideOverlap: true, showMinLabel: false, formatter: axisDate },
+          axisPointer: { label: { formatter: function (p) { return fmtDate(p.value); } } },
+          splitLine: { show: false } },
+        { type: 'time', gridIndex: 1, show: false },
+      ],
+      yAxis: [
+        isK ? {
+          type: 'value', gridIndex: 0, scale: true, splitNumber: 4,
+          axisLine: { show: false }, axisTick: { show: false },
+          splitLine: { show: has, lineStyle: { color: C.grid } },
+          axisLabel: { show: has, color: C.muted, fontSize: 10.5, formatter: v => fmtNum(v, 0) },
+          axisPointer: { label: { formatter: function (p) { return fmtNum(p.value, 0); } } },
+        } : {
+          type: 'value', gridIndex: 0, scale: true, splitNumber: 4,
+          axisLine: { show: false }, axisTick: { show: false },
+          splitLine: { show: has, lineStyle: { color: C.grid } },
+          axisLabel: { show: has, color: C.muted, fontSize: 10.5, formatter: v => (v > 0 ? '+' : '') + nf(Math.abs(v) >= 10 ? 0 : 1).format(v) + '%' },
+          axisPointer: { label: { formatter: function (p) { return fmtSigned(p.value, 1, '%'); } } },
+        },
+        { type: 'value', gridIndex: 1, show: false, scale: true },
+      ],
+      series: isK ? [
+        {
+          name: st.iname, type: 'candlestick', xAxisIndex: 0, yAxisIndex: 0, data: candleData,
+          barMaxWidth: 8,
+          itemStyle: { color: C.up, color0: C.down, borderColor: C.up, borderColor0: C.down },
+        },
+        {
+          name: '__events__', type: 'scatter', xAxisIndex: 0, yAxisIndex: 0, data: ld.evPts,
+          symbolSize: 7, z: 5, itemStyle: { borderColor: '#fff', borderWidth: 1.2 },
+          tooltip: {
+            trigger: 'item', confine: true, backgroundColor: 'rgba(255,255,255,.98)', borderColor: C.line,
+            textStyle: { color: C.ink, fontSize: 11.5 },
+            formatter: function (p) {
+              let h = '<b>' + p.data.name + '</b>';
+              (p.data.evs || []).forEach(e => { h += '<br/><span style="color:' + eventColor(e.type) + '">●</span> ' + e.label; });
+              return h;
+            },
+          },
+        },
+        {
+          name: '__overview__', type: 'line', xAxisIndex: 1, yAxisIndex: 1, data: ovData,
+          showSymbol: false, silent: true,
+          lineStyle: { color: 'rgba(20,19,19,.30)', width: 1 }, itemStyle: { color: 'rgba(20,19,19,.30)' },
+          areaStyle: { color: 'rgba(20,19,19,.04)' },
+          markArea: { silent: true, data: band },
+        },
+      ] : [
+        {
+          name: st.iname, type: 'line', xAxisIndex: 0, yAxisIndex: 0, data: lineData,
+          showSymbol: ld.rows.length < 4, symbolSize: 5, smooth: false,
+          lineStyle: { color: '#0E1F35', width: 1.8 }, itemStyle: { color: '#0E1F35' },
+          areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [
+            { offset: 0, color: 'rgba(14,31,53,.09)' }, { offset: 1, color: 'rgba(14,31,53,0)' }] } },
+          markLine: { silent: true, symbol: 'none', data: [{ yAxis: 0, lineStyle: { color: 'rgba(20,19,19,.18)', type: 'dashed', width: 1 }, label: { show: false } }] },
+        },
+        {
+          name: '__events__', type: 'scatter', xAxisIndex: 0, yAxisIndex: 0, data: ld.evPts,
+          symbolSize: 7, z: 5, itemStyle: { borderColor: '#fff', borderWidth: 1.2 },
+          tooltip: {
+            trigger: 'item', confine: true, backgroundColor: 'rgba(255,255,255,.98)', borderColor: C.line,
+            textStyle: { color: C.ink, fontSize: 11.5 },
+            formatter: function (p) {
+              let h = '<b>' + p.data.name + '</b>';
+              (p.data.evs || []).forEach(e => { h += '<br/><span style="color:' + eventColor(e.type) + '">●</span> ' + e.label; });
+              return h;
+            },
+          },
+        },
+        {
+          name: '__overview__', type: 'line', xAxisIndex: 1, yAxisIndex: 1, data: ovData,
+          showSymbol: false, silent: true,
+          lineStyle: { color: 'rgba(20,19,19,.30)', width: 1 }, itemStyle: { color: 'rgba(20,19,19,.30)' },
+          areaStyle: { color: 'rgba(20,19,19,.04)' },
+          markArea: { silent: true, data: band },
+        },
+      ],
+    }, { notMerge: true });
+    ch.resize();
+    if (isK) ld.catDates = catDates;
+    return ld;
+  }
+
+  // 基准指数切换：左侧事件轴固定不动，只刷新右侧对照图
+  function refreshCycleLensIndex(i) {
+    const st = cycleLensState;
+    if (!st) return;
+    st.iname = (i === '全部' || !i) ? '上证指数' : i;
+    st.overview = rowsBetween(W.kline && W.kline[st.iname], st.cy.start, st.cy.end || W.asof);
+    if (document.body.dataset.view !== 'history') return;
+    const b = st.buckets.find(x => x.key === st.activeKey);
+    if (b) renderCycleLens(b); else updateCycleLens(true);
+  }
+
+  function updateCycleLens(force) {
+    const st = cycleLensState;
+    const box = document.getElementById('cycle-detail');
+    if (!st || !box || document.body.dataset.view !== 'history') return;
+    const groups = $$('.tl-group', box);
+    if (!groups.length) return;
+    // 阅读线放在粘性口径栏之下（移动端口径栏会换成两行）
+    const sb = document.querySelector('.scope-bar');
+    const line = Math.max(150, (sb ? sb.getBoundingClientRect().bottom : 112) + 28);
+    let active = groups[0];
+    for (let i = 0; i < groups.length; i++) {
+      if (groups[i].getBoundingClientRect().top <= line) active = groups[i]; else break;
+    }
+    const key = active.dataset.key;
+    if (!force && key === st.activeKey) return;
+    if (key !== st.activeKey) $$('.ev-item.sel', box).forEach(x => x.classList.remove('sel'));
+    st.activeKey = key;
+    groups.forEach(g => g.classList.toggle('active', g === active));
+    const b = st.buckets.find(x => x.key === key);
+    if (b) renderCycleLens(b);
+  }
+
+  // ---------- 当前观察 ----------
+  const RECENT_WD = { '1m': 20, '3m': 60, '6m': 120 };
+  function renderCurrent() {
+    renderDashboard();
+    renderSimilarity('1m');
+    renderLongIndicators();
+    renderIndicators();
+  }
+  // ---------- 全A 市场状态：四项指标固定为全A口径，不随基准指数变化 ----------
+  const DASH_KEYS = ['pe', 'margin', 'above200', 'concentration'];
+  const DASH_META = {
+    pe: { name: '估值', metric: '全A PE 中位数', tag: 'PE', raw: v => isNil(v) ? '—' : fmtNum(v, 1) + '×' },
+    margin: { name: '杠杆', metric: '融资余额 / 总市值', raw: v => isNil(v) ? '—' : fmtNum(v, 2) + '%' },
+    above200: { name: '广度', metric: '200MA 上方占比', raw: v => isNil(v) ? '—' : fmtNum(v, 1) + '%' },
+    concentration: { name: '拥挤', metric: '前 5% 成交额占比', raw: v => isNil(v) ? '—' : fmtNum(v, 2) + '%' },
+  };
+  // 指标全样本分位（0–100），按日期索引
+  function pctlMap(key) {
+    const o = W.indicators[key] || {};
+    const vals = (o.values || []).filter(v => v != null && !isNaN(v)).sort((a, b) => a - b);
+    const m = {};
+    (o.dates || []).forEach((d, i) => {
+      const v = o.values[i];
+      if (v == null || isNaN(v) || !vals.length) return;
+      let k = 0; while (k < vals.length && vals[k] <= v) k++;
+      m[d] = k / vals.length * 100;
+    });
+    return m;
+  }
+  function latestOf(key) {
+    const o = W.indicators[key] || {};
+    const vs = o.values || [], ds = o.dates || [];
+    for (let i = vs.length - 1; i >= 0; i--) if (vs[i] != null && !isNaN(vs[i])) return { date: ds[i], value: vs[i] };
+    return null;
+  }
+  // 完整阶段名（不用缩写）；没有细分阶段时退回牛/熊区间
+  function phaseFull(idx, date) {
+    const cy = W.cycles.find(c => date >= c.start && date <= (c.end || W.asof));
+    if (cy) {
+      const cp = (W.cycle_phases && W.cycle_phases[idx]) || {};
+      const ph = (cp[cy.id] || []).find(p => date >= p.start && date <= p.end);
+      if (ph) return { cycleName: cy.name, phaseName: ph.name };
+    }
+    const segs = (W.index_cycles && W.index_cycles[idx]) || [];
+    const sg = segs.find(s => date >= s[1] && date <= s[2]);
+    return { cycleName: null, phaseName: sg ? (sg[0] === 'bull' ? '牛市区间' : '熊市区间') : null };
+  }
+  function renderDashboard() {
+    const el = document.getElementById('dash'); if (!el) return;
+
+    // 基准指数状态：本块唯一随基准变化的内容
+    const segs = W.index_cycles[SCOPE.index] || [];
+    const seg = segs[segs.length - 1];
+    const regime = seg ? (seg[0] === 'bull' ? '牛市' : '熊市') : '—';
+    const curPhase = phaseFull('上证指数', W.asof);
+
+    const maps = {}, rawMaps = {}, latest = {}, cur = {};
+    DASH_KEYS.forEach(k => {
+      maps[k] = pctlMap(k);
+      const o = W.indicators[k] || {};
+      const rm = {};
+      (o.dates || []).forEach((d, i) => { if (o.values[i] != null && !isNaN(o.values[i])) rm[d] = o.values[i]; });
+      rawMaps[k] = rm;
+      latest[k] = latestOf(k);
+      cur[k] = latest[k] ? maps[k][latest[k].date] : null;
+    });
+
+    // 当前值与数据截至（各指标日期可能相差一天，统一取最新）
+    const dts = DASH_KEYS.map(k => latest[k] ? latest[k].date : '').filter(Boolean).sort();
+    const asof = dts.length ? dts[dts.length - 1] : '';
+    const lag = DASH_KEYS.filter(k => latest[k] && latest[k].date !== asof)
+      .map(k => DASH_META[k].name + ' ' + latest[k].date).join(' · ');
+    const asofEl = document.getElementById('dash-asof');
+    if (asofEl) asofEl.innerHTML = '<span class="dot"></span><span>数据截至 <b>' + (asof || '—') + '</b></span>' +
+      (lag ? '<span class="lag">' + lag + '</span>' : '');
+
+    // 牛熊均值：全A指标分位按上证指数牛熊分段统计
+    const mSegs = W.index_cycles['上证指数'] || [];
+    const sums = { bull: {}, bear: {} }, rawSums = { bull: {}, bear: {} }, cnt = { bull: 0, bear: 0 };
+    const common = ((W.indicators.above200 || {}).dates || []).filter(d => DASH_KEYS.every(k => maps[k][d] != null));
+    common.forEach(d => {
+      const sg = mSegs.find(s => d >= s[1] && d <= s[2]);
+      if (!sg) return;
+      cnt[sg[0]]++;
+      DASH_KEYS.forEach(k => {
+        sums[sg[0]][k] = (sums[sg[0]][k] || 0) + maps[k][d];
+        rawSums[sg[0]][k] = (rawSums[sg[0]][k] || 0) + rawMaps[k][d];
+      });
+    });
+    const mean = (t, k) => cnt[t] ? sums[t][k] / cnt[t] : null;
+    const rawMean = (t, k) => cnt[t] ? rawSums[t][k] / cnt[t] : null;
+
+    // 历史相似阶段：四项分位向量最近邻，剔除本轮（>= 2024-02-05）
+    const scored = [];
+    common.forEach(d => {
+      if (d >= '2024-02-05') return;
+      const ph = phaseFull('上证指数', d);
+      if (!ph || !ph.phaseName) return;
+      let diff = 0;
+      DASH_KEYS.forEach(k => { diff += Math.abs(maps[k][d] - cur[k]); });
+      scored.push({ date: d, sim: 100 - diff / DASH_KEYS.length, ph: ph });
+    });
+    scored.sort((a, b) => b.sim - a.sim);
+    const matches = [];
+    for (let i = 0; i < scored.length && matches.length < 3; i++) {
+      if (matches.every(m => Math.abs(ts(scored[i].date) - ts(m.date)) > 182 * 86400000)) matches.push(scored[i]);
+    }
+    // 近邻 10% 的阶段分布
+    const bandN = Math.min(scored.length, Math.max(10, Math.round(scored.length * 0.1)));
+    const tally = {};
+    scored.slice(0, bandN).forEach(r => { tally[r.ph.phaseName] = (tally[r.ph.phaseName] || 0) + 1; });
+    const dist = Object.keys(tally).sort((a, b) => tally[b] - tally[a]);
+    const distTxt = dist.slice(0, 2).map(n => n + ' ' + Math.round(tally[n] / bandN * 100) + '%').join(' · ');
+
+    const pos = v => isNil(v) ? 0 : Math.max(0, Math.min(100, v));
+    let html = '<div class="dash-head">' +
+      '<div class="dash-title-wrap"><div class="dash-title">全A 市场状态</div>' +
+      '<div class="dash-meta">全A 口径 · 2016-11 起 · 牛熊按上证分段</div></div>' +
+      '<div class="dash-regime"><span class="dash-badge">基准 ' + SCOPE.index + ' · ' + regime + '</span>' +
+      '<span class="dash-note">上证阶段 · ' + (curPhase && curPhase.cycleName ? curPhase.cycleName + ' · ' : '') +
+      (curPhase && curPhase.phaseName ? curPhase.phaseName : '—') + '</span></div></div>';
+
+    html += '<div class="dash-body"><div class="cmp-wrap">' +
+      '<div class="cmp-row head"><div class="cmp-name">指标</div><div class="cmp-v">当前分位</div>' +
+      '<div class="cmp-v">牛市均值</div><div class="cmp-v">熊市均值</div><div class="cmp-track-h">0–100</div></div>';
+    html += DASH_KEYS.map(k => {
+      const meta = DASH_META[k];
+      const cp = cur[k], bp = mean('bull', k), sp = mean('bear', k), lt = latest[k];
+      const tip = meta.metric + '：当前 ' + meta.raw(lt ? lt.value : null) + '（' + fmtNum(cp, 0) + '% 分位）' +
+        ' · 牛市均值 ' + meta.raw(rawMean('bull', k)) + '（' + fmtNum(bp, 0) + '%）' +
+        ' · 熊市均值 ' + meta.raw(rawMean('bear', k)) + '（' + fmtNum(sp, 0) + '%）';
+      return '<div class="cmp-row">' +
+        '<div class="cmp-name" title="' + tip + '"><b>' + meta.name + '</b><span>' +
+        (meta.tag ? meta.tag + ' ' : '') + meta.raw(lt ? lt.value : null) + '</span></div>' +
+        '<div class="cmp-v cur"><b>' + fmtNum(cp, 0) + '%</b></div>' +
+        '<div class="cmp-v bull"><b>' + fmtNum(bp, 0) + '%</b></div>' +
+        '<div class="cmp-v bear"><b>' + fmtNum(sp, 0) + '%</b></div>' +
+        '<div class="cmp-track" title="' + tip + '">' +
+        '<i class="cmp-base"></i>' +
+        '<i class="cmp-mark bull" style="left:' + pos(bp) + '%"></i>' +
+        '<i class="cmp-mark bear" style="left:' + pos(sp) + '%"></i>' +
+        '<i class="cmp-mark cur" style="left:' + pos(cp) + '%"></i>' +
+        '</div></div>';
+    }).join('');
+    html += '<div class="cmp-legend"><span><i class="lg cur"></i>当前</span>' +
+      '<span><i class="lg bull"></i>牛市均值</span><span><i class="lg bear"></i>熊市均值</span></div>';
+    html += '</div>';
+
+    html += '<div class="match-wrap"><div class="match-head"><span class="match-title">历史相似阶段</span>' +
+      '<span class="match-hint">剔除本轮</span></div>' +
+      '<div class="match-row head"><span>日期</span><span>周期 · 阶段</span><span>相似</span></div>';
+    html += matches.map(r => {
+      return '<div class="match-row">' +
+        '<span class="match-d">' + r.date + '</span>' +
+        '<span class="match-p">' + (r.ph.cycleName ? r.ph.cycleName + ' · ' : '') + r.ph.phaseName + '</span>' +
+        '<span class="match-s" title="100 − 四项指标平均分位差">' + fmtNum(r.sim, 0) + '</span>' +
+        '</div>';
+    }).join('');
+    if (distTxt) {
+      const topZone = /转熊|后期|顶点/.test(dist[0]);
+      html += '<div class="match-concl">相似样本 <b>' + distTxt + '</b> → ' +
+        (topZone ? '顶部转折区' : dist[0] + '阶段') + '</div>';
+    }
+    html += '</div></div>';
+
+    el.innerHTML = html;
+  }
+  function pctFromBase(arr) {
+    const base = arr.find(v => v != null);
+    if (!base) return arr.map(() => null);
+    return arr.map(v => v == null ? null : Math.round((v / base - 1) * 10000) / 100);
+  }
+  function lastOf(arr) { for (let i = arr.length - 1; i >= 0; i--) if (arr[i] != null) return arr[i]; return null; }
+  let simIndex = SCOPE.index;
+  let simRange = '1m';
+  function renderSimilarityToolbar() {
+    const tb = document.getElementById('sim-toolbar');
+    if (!tb) return;
+    tb.innerHTML = '<div class="seg" data-simwd>' + [['1m', '近1月'], ['3m', '近3月'], ['6m', '近6月']].map(x => '<button data-wd="' + x[0] + '"' + (x[0] === simRange ? ' class="active"' : '') + '>' + x[1] + '</button>').join('') + '</div>';
+    $$('[data-wd]', tb).forEach(b => b.addEventListener('click', function () { simRange = b.dataset.wd; renderSimilarity(simRange); }));
+  }
+
+  // 前端计算相似度：用 K 线收盘，末 wd 日 vs 历史同长窗口，后 fwd 日收益从窗口末起算
+  function computeSimilarity(idx, wd, fwd, topK) {
+    const k = W.kline[idx];
+    if (!k) return [];
+    const closes = k.close, dates = k.dates, n = closes.length;
+    if (n < wd + fwd + 5) return [];
+    const curWin = closes.slice(n - wd);
+    const bc = curWin[0] || 1;
+    const curN = curWin.map(v => v / bc);
+    const cm = curN.reduce((a, b) => a + b, 0) / wd;
+    const cd = curN.map(v => v - cm);
+    const cn = Math.sqrt(cd.reduce((a, b) => a + b * b, 0));
+    if (!cn) return [];
+    const res = [];
+    // 与页面 2005 年起的复盘口径一致，不拿 2005 年前的样本做相似期
+    const _y05 = dates.findIndex(d => d >= '2005-01-01');
+    const _iMin = (_y05 >= 0 ? _y05 : 0) + wd;
+    for (let i = _iMin; i <= n - fwd - 1; i++) {
+      const win = closes.slice(i - wd, i);
+      if (win.some(v => v == null)) continue;
+      const b = win[0] || 1;
+      const wn = win.map(v => v / b);
+      const m = wn.reduce((a, b2) => a + b2, 0) / wd;
+      const d = wn.map(v => v - m);
+      const dn = Math.sqrt(d.reduce((a, b2) => a + b2 * b2, 0));
+      if (!dn) continue;
+      const corr = d.reduce((a, b2, j) => a + b2 * cd[j], 0) / (dn * cn);
+      const endDate = dates[i - 1], endVal = closes[i - 1];
+      const fwdVal = closes[Math.min(n - 1, i - 1 + fwd)];
+      res.push({ endDate: endDate, corr: corr, fut30: (fwdVal / endVal - 1) * 100, iStart: i - wd, iEnd: i - 1 });
+    }
+    res.sort((a, b) => b.corr - a.corr);
+    const picked = [];
+    for (const r of res) {
+      if (picked.every(pp => Math.abs(new Date(r.endDate) - new Date(pp.endDate)) > wd * 86400000 * 0.6)) picked.push(r);
+      if (picked.length >= topK) break;
+    }
+    return picked;
+  }
+
+  const FWD = 30;
+  function phaseOfDate(idx, date) {
+    const segs = (W.index_cycles && W.index_cycles[idx]) || [];
+    const seg = segs.find(sg => date >= sg[1] && date <= sg[2]);
+    if (!seg) return null;
+    const type = seg[0] === 'bull' ? '牛市' : '熊市';
+    const cy = W.cycles.find(c => date >= c.start && date <= (c.end || W.asof));
+    let phaseName = null, fullName = null;
+    if (cy) {
+      const cp = (W.cycle_phases && W.cycle_phases[idx]) || {};
+      const ph = (cp[cy.id] || []).find(pp => date >= pp.start && date <= pp.end);
+      if (ph) { phaseName = PHASE_SHORT[ph.name] || ph.name; fullName = ph.name; }
+    }
+    return { type, cycleName: cy ? cy.name : null, phaseName, fullName, segStart: seg[1], segEnd: seg[2] };
+  }
+
+  function renderSimilarity(range) {
+    simRange = range || simRange;
+    const wd = (simRange === '3m') ? 60 : (simRange === '6m' ? 120 : 22);
+    renderSimilarityToolbar();
+    const idx = simIndex;
+    const k = W.kline[idx];
+    if (!k) return;
+    const closes = k.close, n = closes.length;
+    const matches = computeSimilarity(idx, wd, FWD, 3);
+    const simAsof = document.getElementById('sim-asof');
+    if (simAsof) simAsof.textContent = idx + ' · 截至 ' + k.dates[k.dates.length - 1];
+    const total = wd + FWD;
+    const xLabels = []; for (let i = 1; i <= total; i++) xLabels.push(i + '日');
+    const chartW = (document.getElementById('chart-sim') || {}).clientWidth || 900;
+    const labelStep = Math.max(1, Math.ceil(total / Math.max(6, Math.min(12, Math.floor(chartW / 80)))));
+    const colors = ['#4A6FA5', '#7D3C98', '#B07A3E'];
+    // 当前走势：归一化到 0% 的折线（前 wd 日）
+    const curC = closes.slice(n - wd);
+    const baseC = curC[0] || 1;
+    const curPct = curC.map(v => (v / baseC - 1) * 100);
+    const curSeries = curPct.concat(new Array(FWD).fill(null));
+    // 历史线 + 阶段标注
+    const histSeries = [], histMeta = [];
+    matches.forEach((m, i) => {
+      const win = closes.slice(m.iStart, m.iEnd + 1);
+      const b = win[0] || 1;
+      const wp = win.map(v => (v / b - 1) * 100);
+      const fw = closes.slice(m.iEnd + 1, m.iEnd + 1 + FWD).map(v => (v / b - 1) * 100);
+      const data = wp.concat(fw); while (data.length < total) data.push(null);
+      const ph = phaseOfDate(idx, m.endDate);
+      histMeta.push({ m, ph });
+      histSeries.push({ name: m.endDate, type: 'line', data: data.slice(0, total), smooth: true, showSymbol: false, z: 3, lineStyle: { color: colors[i % colors.length], width: 1.7, type: 'dashed' }, itemStyle: { color: colors[i % colors.length] } });
+    });
+    // 历史样本后30日中位路径
+    const medData = new Array(total).fill(null);
+    for (let k = 0; k < FWD; k++) {
+      const dd = wd + k;
+      const vals = histSeries.map(h => h.data[dd]).filter(v => v != null);
+      if (vals.length) { vals.sort((a, b) => a - b); medData[dd] = Math.round(vals[Math.floor(vals.length / 2)] * 100) / 100; }
+    }
+    const medSeries = { name: '历史样本中位路径', type: 'line', data: medData, smooth: true, showSymbol: false, z: 7, lineStyle: { color: '#A8875B', width: 2.6 }, itemStyle: { color: '#A8875B' } };
+    // 统计条
+    let st = document.getElementById('chart-sim').closest('.chart-card').querySelector('.chart-stats');
+    if (!st) { st = document.createElement('div'); st.className = 'chart-stats'; var _cc = document.getElementById('chart-sim').closest('.chart-card'); _cc.insertBefore(st, _cc.querySelector('#chart-sim')); }
+    st.innerHTML = '<span class="stat">近' + (wd === 22 ? '1' : wd === 60 ? '3' : '6') + '月 · ' + wd + ' 交易日 · ' + matches.length + ' 段样本</span>' +
+      '<span class="stat"><b>最高相似</b> ' + (matches[0] ? fmtNum(matches[0].corr * 100, 1) + '%' : '—') + '</span>';
+    const ch = charts['chart-sim'] || echarts.init(document.getElementById('chart-sim')); charts['chart-sim'] = ch;
+    ch.setOption({
+      textStyle: CHART_OPTS.textStyle, animation: false,
+      grid: { left: 58, right: 18, top: 58, bottom: 40 },
+      legend: { top: 0, type: 'scroll', textStyle: { color: C.ink, fontSize: 11 }, data: ['当前走势', '历史样本中位路径'].concat(histSeries.map(h => h.name)), itemWidth: 14, itemHeight: 3 },
+      tooltip: { trigger: 'axis', axisPointer: { type: 'cross', lineStyle: { color: 'rgba(20,19,19,.3)', type: 'dashed' } }, backgroundColor: 'rgba(255,255,255,.98)', borderColor: C.line, textStyle: { color: C.ink, fontSize: 11.5 }, formatter: function (ps) { if (!ps.length) return ''; let h = '<b>' + ps[0].axisValue + '</b>'; ps.forEach(p => { if (p.value != null) h += '<br/>' + p.marker + p.seriesName + '：' + fmtSigned(p.value, 1, '%'); }); return h; } },
+      xAxis: { type: 'category', data: xLabels, boundaryGap: false, axisLine: { lineStyle: { color: C.axis } }, axisLabel: { color: C.muted, fontSize: 11, interval: labelStep - 1 } },
+      yAxis: { type: 'value', scale: true, splitLine: { lineStyle: { color: C.grid } }, axisLabel: { color: C.muted, fontSize: 11, formatter: v => fmtNum(v, 0) + '%' } },
+      series: [
+        { name: '当前走势', type: 'line', data: curSeries, smooth: true, showSymbol: false, z: 6, connectNulls: false, lineStyle: { color: '#0E1F35', width: 2.8 }, itemStyle: { color: '#0E1F35' },
+          markArea: { silent: true, label: { show: true, position: 'insideTop', formatter: '样本后' + FWD + '日', color: C.muted, fontSize: 11 }, data: [[{ xAxis: xLabels[wd - 1], itemStyle: { color: 'rgba(168,135,91,.08)' } }, { xAxis: xLabels[total - 1] }]] },
+          markLine: { silent: true, symbol: 'none', lineStyle: { color: 'rgba(20,19,19,.32)', type: 'dashed' }, label: { show: false }, data: [{ xAxis: xLabels[wd - 1] }] } },
+      ].concat([medSeries]).concat(histSeries),
+    }, { notMerge: true });
+    // 下方：三张可点击的历史区间卡（悬停预览、点击锁定走势）
+    const cards = document.getElementById('sim-cards');
+    cards.innerHTML = '<div class="sim-head"><span class="sim-sec-title">历史区间</span>' +
+      '<span class="sim-hint"><span class="hint-hover">悬停预览 · </span>点击锁定</span></div>' +
+      '<div class="sim-cards">' + histMeta.map(function (hm, i) {
+        const m = hm.m, ph = hm.ph, f = m.fut30;
+        const phText = ph ? (ph.fullName
+          ? (ph.cycleName ? ph.cycleName + ' · ' : '') + ph.fullName
+          : ph.segStart.slice(0, 4) + '–' + ph.segEnd.slice(0, 4) + ' · ' + ph.type) : '全A早期';
+        return '<button type="button" class="sim-card" data-si="' + i + '">' +
+          '<span class="sc-top"><i class="sc-dot" style="background:' + colors[i % colors.length] + '"></i>' +
+          '<b class="sc-date">' + m.endDate + '</b><span class="sc-sim">相似度 <b>' + fmtNum(m.corr * 100, 1) + '%</b></span></span>' +
+          '<span class="sc-ph' + (ph ? '' : ' dim') + '">' + phText + '</span>' +
+          '<span class="sc-fut">后30日 <b class="' + (f == null ? '' : (f >= 0 ? 'up' : 'down')) + '">' + fmtSigned(f, 1, '%') + '</b></span>' +
+          '</button>';
+      }).join('') + '</div>';
+    let pinned = -1;
+    function highlight(si) {
+      ch.setOption({ series: histSeries.map(function (h, j) {
+        return { name: h.name, lineStyle: { width: si < 0 ? 1.7 : (j === si ? 3.4 : 0.8), opacity: si < 0 ? 1 : (j === si ? 1 : 0.2) } };
+      }) });
+      cards.querySelectorAll('.sim-card').forEach(function (c, j) {
+        c.classList.toggle('active', j === (si < 0 ? pinned : si));
+      });
+    }
+    cards.querySelectorAll('.sim-card').forEach(function (card) {
+      const si = +card.dataset.si;
+      card.addEventListener('mouseenter', function () { highlight(si); });
+      card.addEventListener('mouseleave', function () { highlight(pinned); });
+      card.addEventListener('click', function () {
+        pinned = pinned === si ? -1 : si;
+        highlight(pinned);
+      });
+    });
+    // 相似样本后30日收益分布：一行读完
+    const allM = computeSimilarity(idx, wd, FWD, 15);
+    const futs = allM.map(function (m) { return m.fut30; }).filter(function (v) { return v != null; }).sort(function (a, b) { return a - b; });
+    const scn = document.getElementById('sim-scenario');
+    if (scn) {
+      if (futs.length >= 3) {
+        // 线性插值分位数，样本较少时比直接取整更稳
+        const qf = function (q) {
+          const pos = (futs.length - 1) * q, lo = Math.floor(pos), hi = Math.ceil(pos);
+          return futs[lo] + (futs[hi] - futs[lo]) * (pos - lo);
+        };
+        const arr = [['悲观', qf(0.10)], ['中位', qf(0.50)], ['乐观', qf(0.90)]];
+        scn.innerHTML = '<div class="scn-line"><span class="scn-t">相似样本 · 后 30 日</span>' +
+          arr.map(function (x) {
+            return '<span class="scn-i ' + (x[1] >= 0 ? 'up' : 'down') + '">' + x[0] + ' <b>' + fmtSigned(x[1], 1, '%') + '</b></span>';
+          }).join('') +
+          '<span class="scn-n">' + futs.length + ' 个样本</span></div>';
+      } else { scn.innerHTML = ''; }
+    }
+  }
+  function renderMacroCorr() {
+    const body = document.getElementById('macro-corr-body');
+    if (!body || body.dataset.done) return;
+    const mc = W.macro_corr;
+    if (!mc) { body.innerHTML = '<div class="desc">相关性数据未生成</div>'; return; }
+    body.dataset.done = '1';
+    const rows = mc.rows || [];
+    let html = '<div class="corr-concl">';
+    (mc.conclusion || []).forEach(t => { html += '<div class="cc-item">' + t + '</div>'; });
+    html += '</div>';
+    html += '<div class="corr-tbl-wrap"><table class="phase-tbl"><tr><th>指标</th><th class="num">牛均值</th><th class="num">熊均值</th><th class="num">同步相关</th><th class="num">领先6月</th><th class="num">区分度d</th></tr>';
+    rows.forEach(r => {
+      const role = (r.r_sync > 0.15 ? 'up' : (r.r_sync < -0.15 ? 'down' : ''));
+      html += '<tr><td>' + r.name + '</td><td class="num">' + fmtNum(r.bull_mean, 2) + '</td><td class="num">' + fmtNum(r.bear_mean, 2) + '</td>' +
+        '<td class="num ' + role + '">' + fmtSigned(r.r_sync, 2) + '</td>' +
+        '<td class="num">' + fmtSigned(r.r_lead6, 2) + '</td>' +
+        '<td class="num">' + fmtSigned(r.d, 2) + '</td></tr>';
+    });
+    html += '</table></div>';
+    body.innerHTML = html;
+  }
+
+  function renderMacro() {
+    const grid = document.getElementById('macro-grid');
+    if (!grid) return;
+    if (grid.dataset.done) return;
+    // 相关性汇总
+    renderMacroCorr();
+    const m = W.macro;
+    if (!m) { grid.innerHTML = '<div class="empty">宏观数据未加载</div>'; return; }
+    grid.dataset.done = '1';
+    const meta = document.getElementById('macro-meta');
+    const corrAsof = document.getElementById('macro-corr-asof');
+    if (corrAsof) corrAsof.textContent = '截至 ' + (m.updated || W.asof);
+    let k = 0;
+    const pending = [];
+    m.sections.forEach(sec => {
+      const h = document.createElement('div');
+      h.className = 'macro-section-title';
+      h.textContent = sec.name;
+      grid.appendChild(h);
+      sec.items.forEach(it => {
+        k++;
+        const cid = 'macro-' + k;
+        const card = document.createElement('div');
+        card.className = 'chart-card';
+        const _lastLabel = (it.labels && it.labels.length) ? it.labels[it.labels.length - 1] : '';
+        card.innerHTML = '<div class="card-head"><h2>' + it.title +
+          (it.unit ? ' <span class="unit">' + it.unit + '</span>' : '') + '</h2>' +
+          (_lastLabel ? '<span class="asof">截至 ' + _lastLabel + '</span>' : '') + '</div>' +
+          '<div class="chart small" id="' + cid + '"></div>';
+        grid.appendChild(card);
+        pending.push({ cid: cid, it: it });
+      });
+    });
+    // 卡片全部插入后再初始化，避免 auto-fit 空列折叠时按整行宽度建图
+    pending.forEach(function (p) {
+      const it = p.it;
+      buildChart(p.cid, {
+        cycleSegs: W.index_cycles[SCOPE.index],
+        decimals: it.unit === '%' ? 1 : 0,
+        data: { dates: it.labels, series: it.series.map(sr => ({ name: sr.name, values: sr.values })) },
+        unit: it.unit,
+      });
+    });
+    if (meta) meta.textContent = SCOPE.index + ' 牛熊分段 · ' + k + ' 项 · 截至 ' + (m.updated || W.asof);
+  }
+
+  // 长周期指数口径：上证 2004 起 / 沪深300 2005 起
+  function renderLongIndicators() {
+    const grid = document.getElementById('ind-long');
+    if (!grid) return;
+    disposeChartsIn(grid);
+    grid.innerHTML = '';
+    const ih = W.index_history || {};
+    const has = !!ih[SCOPE.index];
+    const name = has ? SCOPE.index : '上证指数';
+    const h = ih[name];
+    const head = document.getElementById('ind-long-head');
+    const startY = (h && h.dates && h.dates[0] || '').slice(0, 4);
+    if (head) head.innerHTML = '<b>长周期 · ' + name + '</b><span>' +
+      (has ? startY + ' 起 · 周频 · 指数口径' : '暂无' + SCOPE.index + '估值数据 · 暂以上证指数替代') + '</span>';
+    if (!h || !h.dates || !h.dates.length) { grid.innerHTML = '<div class="empty-ind">长周期数据未加载</div>'; return; }
+    const ITEMS = [
+      { key: 'pe', title: 'PE(TTM)（倍）', unit: '', dec: 2 },
+      { key: 'pb', title: 'PB（倍）', unit: '', dec: 2 },
+      { key: 'turnover', title: '换手率（%）', unit: '%', dec: 2 },
+    ];
+    const asof = h.dates[h.dates.length - 1];
+    ITEMS.forEach(function (it) {
+      const box = document.createElement('div'); box.className = 'chart-card';
+      box.innerHTML = '<div class="card-head"><h2>' + it.title + '</h2><span class="asof">截至 ' + asof + '</span></div>' +
+        '<div class="chart small" id="ind-long-' + it.key + '"></div>';
+      grid.appendChild(box);
+      buildChart('ind-long-' + it.key, {
+        showPct: true, hidePctStats: true, cycleShade: true, cycleSegs: W.index_cycles[name], decimals: it.dec,
+        data: { dates: h.dates, series: [{ name: it.title, values: h[it.key], color: C.accentD }] },
+        unit: it.unit, area: true,
+      });
+    });
+  }
+
+  function renderIndicators() {
+    const grid = document.getElementById('ind-grid');
+    disposeChartsIn(grid);
+    grid.innerHTML = '';
+    const INDS = [
+      { key: 'margin', title: '融资余额 / A股总市值（%）', unit: '%', dec: 2 },
+      { key: 'amount', title: '全A成交额（亿元）', unit: '亿元', dec: 0 },
+      { key: 'concentration', title: '成交集中度（前5%占比 %）', unit: '%', dec: 1 },
+      { key: 'pe', title: '全A PE中位数（倍）', unit: '', dec: 2, showPct: true },
+      { key: 'pb', title: '全A PB中位数（倍）', unit: '', dec: 2, showPct: true },
+      { key: 'limit', title: '涨停家数（家/日）', unit: '', dec: 0 },
+      { key: 'above200', title: '200日均线上方占比（%）', unit: '%', dec: 1 },
+      { key: 'newhigh', title: '52周新高家数（家/日）', unit: '', dec: 0 },
+      { key: 'newlow', title: '52周新低家数（家/日）', unit: '', dec: 0 },
+      { key: 'turnover', title: '换手率中位数（%）', unit: '%', dec: 2 },
+      { key: 'breadth', title: '上涨家数占比（%）', unit: '%', dec: 1 },
+      { key: 'hk', title: '港股通持股（亿股）', unit: '亿股', dec: 0 },
+      { key: 'ipo', title: 'IPO 数量（家/月）', unit: '', dec: 0 },
+      { key: 'holder', title: '股东净减持（亿元/月）', unit: '', dec: 0 },
+    ];
+    // 先把所有卡片插入 DOM，再初始化图表：
+    // auto-fit 网格在只有一张卡片时会把空列折叠，先建图会按整行宽度初始化
+    const pending = [];
+    INDS.forEach(function (ind) {
+      const d = (ind.key === 'ipo' || ind.key === 'holder') ? (window.WAW.extra && window.WAW.extra[ind.key]) : W.indicators[ind.key];
+      const box = document.createElement('div'); box.className = 'chart-card';
+      const has = d && d.dates && d.dates.length;
+      const _asof = has ? d.dates[d.dates.length - 1] : '';
+      box.innerHTML = '<div class="card-head"><h2>' + ind.title + '</h2>' +
+        (has ? '<span class="asof">截至 ' + _asof + '</span>' : '') + '</div>' +
+        (has ? '<div class="chart small" id="ind-' + ind.key + '"></div>' : '<div class="empty-ind">本地未接入该指标</div>');
+      grid.appendChild(box);
+      if (has) pending.push({ ind: ind, d: d });
+    });
+    pending.forEach(function (p) {
+      buildChart('ind-' + p.ind.key, {
+        showPct: !!p.ind.showPct, cycleShade: true, decimals: p.ind.dec,
+        data: { dates: p.d.dates, series: [{ name: p.ind.title, values: p.d.values, color: C.accentD }] },
+        unit: p.ind.unit, area: true,
+      });
+    });
+  }
+
+  // ---------- 初始化 ----------
+  renderScopeBar();
+  renderHeroChart();
+  renderCycleTabs();
+  (function () {
+    const tabs = $$('.cycle-tab'); if (tabs.length) tabs[tabs.length - 1].classList.add('active');
+    const last = W.cycles[W.cycles.length - 1];
+    histCycle = last.id;
+    renderCycleDetail(last);
+  })();
+  window.addEventListener('resize', function () {
+    Object.values(charts).forEach(c => c.resize());
+    updateCycleLens(true);
+  });
+  // 滚动联动：只改当前分段，rAF 节流
+  window.addEventListener('scroll', function () {
+    if (lensRaf) return;
+    lensRaf = requestAnimationFrame(function () { lensRaf = null; updateCycleLens(false); });
+  }, { passive: true });
+  window.addEventListener('hashchange', function () {
+    const h = (location.hash || '').replace('#', '');
+    if (['intro', 'history', 'current', 'macro', 'academy'].indexOf(h) >= 0) go(h);
+  });
+  // 锚点链接（进入当前观察 / 股票卡 / 侧链）直接绑定，确保点击必跳
+  $$('a[href^="#"]').forEach(function (a) {
+    a.addEventListener('click', function (e) {
+      const h = (a.getAttribute('href') || '').replace('#', '');
+      if (['intro', 'history', 'current', 'macro', 'academy'].indexOf(h) >= 0) { e.preventDefault(); go(h); }
+    });
+  });
+
+  // 区间/频度段：当前观察主图 + 指标图的区间按钮统一绑定（buildChart 内已绑）
+  // hash 直达
+  (function () {
+    const h = (location.hash || '').replace('#', '');
+    if (['intro', 'history', 'current', 'macro', 'academy'].indexOf(h) >= 0) go(h);
+    if (new URLSearchParams(location.search).get('to') === 'macro') go('macro');
+  })();
+})();

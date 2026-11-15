@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>A股复盘框架 · 环境仪表盘</title>
+<style>
+  :root {
+    --bg: #faf9f6; --card: #ffffff; --ink: #2b2b2b; --muted: #8a8a86;
+    --accent: #1f4e79; --accent2: #b08d57; --bull: #c0392b; --bear: #2e7d5b;
+    --border: #e8e5de; --shadow: 0 1px 3px rgba(0,0,0,.06), 0 4px 16px rgba(0,0,0,.04);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--ink); font-family: -apple-system,"PingFang SC","Microsoft YaHei","Segoe UI",sans-serif; line-height:1.55; padding:24px 20px 60px; }
+  .wrap { max-width:1280px; margin:0 auto; }
+  header { display:flex; align-items:baseline; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-bottom:4px; }
+  header h1 { font-size:22px; font-weight:700; letter-spacing:.5px; }
+  header .sub { color:var(--muted); font-size:12.5px; }
+  .rule { height:3px; width:72px; background:linear-gradient(90deg,var(--accent),var(--accent2)); margin:10px 0 18px; border-radius:2px; }
+
+  .verdict { background:linear-gradient(135deg,#1f4e79,#2c6a9f); color:#fff; border-radius:14px; padding:18px 22px; margin-bottom:16px; box-shadow:var(--shadow); }
+  .verdict .t { font-size:13px; opacity:.85; }
+  .verdict .big { font-size:30px; font-weight:800; letter-spacing:.5px; display:inline-block; margin-right:10px; }
+  .verdict .txt { font-size:14.5px; line-height:1.7; }
+  .verdict .tag { display:inline-block; background:rgba(255,255,255,.18); border-radius:20px; padding:2px 12px; font-size:12px; margin-right:8px; }
+
+  .grid { display:grid; gap:16px; }
+  .kpis { grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); margin-bottom:6px; }
+  .kpi { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:14px 16px; box-shadow:var(--shadow); }
+  .kpi .label { font-size:12px; color:var(--muted); margin-bottom:5px; }
+  .kpi .value { font-size:21px; font-weight:700; }
+  .kpi .pct { font-size:11.5px; margin-top:3px; color:var(--muted); }
+  .kpi .bar { height:5px; border-radius:3px; background:#eeeae1; margin-top:9px; overflow:hidden; }
+  .kpi .bar i { display:block; height:100%; border-radius:3px; }
+
+  .charts { grid-template-columns:repeat(auto-fit,minmax(430px,1fr)); }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:16px 18px; box-shadow:var(--shadow); }
+  .card h2 { font-size:14.5px; font-weight:700; margin-bottom:2px; }
+  .card .desc { font-size:11.5px; color:var(--muted); margin-bottom:10px; }
+  .card.full { grid-column:1 / -1; }
+  .chart { width:100%; height:300px; }
+  .chart.tall { height:380px; }
+  .chart.short { height:240px; }
+
+  table.cycles { width:100%; border-collapse:collapse; font-size:12.5px; }
+  table.cycles th, table.cycles td { padding:7px 9px; text-align:left; border-bottom:1px solid var(--border); }
+  table.cycles th { color:var(--muted); font-weight:600; background:#f7f5f0; }
+  table.cycles tr:last-child td { border-bottom:none; }
+  .tag { display:inline-block; padding:1px 8px; border-radius:20px; font-size:11px; }
+  .tag.now { background:#eaf1f8; color:var(--accent); }
+
+  .adv-links { display:flex; flex-wrap:wrap; gap:10px; margin-top:6px; }
+  .adv-links a { font-size:12.5px; color:var(--accent); text-decoration:none; border:1px solid var(--border); padding:6px 12px; border-radius:20px; background:#fff; }
+  .adv-links a:hover { border-color:var(--accent); }
+  .foot { margin-top:22px; font-size:11.5px; color:var(--muted); }
+  .foot b { color:var(--ink); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>A股复盘框架 · 环境仪表盘</h1>
+      <div class="sub">叙事经济学 · 牛熊周期定位 · 四层指标体系 · 主线识别（本地数据 · 每周复盘）</div>
+    </div>
+    <div class="sub">指数截至 <b id="asof-index">—</b> · 市场指标截至 <b id="asof-market">—</b></div>
+  </header>
+  <div class="rule"></div>
+
+  <div class="verdict" id="verdict"></div>
+
+  <div class="grid kpis" id="kpis"></div>
+
+  <div class="grid charts">
+    <div class="card full">
+      <h2>上证指数长期走势 · 历史牛熊位置</h2>
+      <div class="desc">1990–2026 年度收盘，色带标注历轮牛熊周期（红=牛市，绿=熊市）</div>
+      <div class="chart tall" id="c-long"></div>
+    </div>
+
+    <div class="card">
+      <h2>主线榜单 · 250日超额收益</h2>
+      <div class="desc">主题板块相对沪深300累计超额（叙事经济学主线识别）</div>
+      <div class="chart tall" id="c-rank"></div>
+    </div>
+
+    <div class="card">
+      <h2>主线演进 · 累计超额收益</h2>
+      <div class="desc">top 主线近一年累计超额（偏离=叙事进行，重合=叙事兑现）</div>
+      <div class="chart tall" id="c-evo"></div>
+    </div>
+
+    <div class="card">
+      <h2>ETF主题 · 起涨信号（60日 vs 250日超额）</h2>
+      <div class="desc">左上=正在起涨（近期启动、此前未涨），右上=主线加速，右下=回落</div>
+      <div class="chart tall" id="c-etf"></div>
+    </div>
+
+    <div class="card">
+      <h2>正在起涨的 ETF（叙事刚启动）</h2>
+      <div class="desc">近60日超额&gt;5% 且 250日超额&lt;15%（此前跑输、近期启动）</div>
+      <table class="cycles" id="t-rising"></table>
+    </div>
+
+    <div class="card">
+      <h2>上证 vs 沪深300（2016–2026）</h2>
+      <div class="desc">月频，观察当前所处波段位置</div>
+      <div class="chart" id="c-hs300"></div>
+    </div>
+
+    <div class="card">
+      <h2>全A 市盈率中位数（PE-TTM）</h2>
+      <div class="desc">周频，估值温度计（虚线=历史顶部锚 56.5×）</div>
+      <div class="chart" id="c-pe"></div>
+    </div>
+
+    <div class="card">
+      <h2>换手率中位数 与 成交额</h2>
+      <div class="desc">周频，市场活跃度</div>
+      <div class="chart" id="c-turnover"></div>
+    </div>
+
+    <div class="card">
+      <h2>市场广度 与 成交集中度</h2>
+      <div class="desc">上涨家数占比（广度）· 前5%成交集中度（拥挤度）</div>
+      <div class="chart" id="c-breadth"></div>
+    </div>
+
+    <div class="card">
+      <h2>投资时钟 · GDP/CPI</h2>
+      <div class="desc">近5年 GDP 与 CPI 同比，用于宏观环境定位</div>
+      <div class="chart" id="c-clock"></div>
+    </div>
+
+    <div class="card">
+      <h2>历轮牛熊周期</h2>
+      <div class="desc">研报规范划分口径</div>
+      <table class="cycles" id="t-cycles"></table>
+    </div>
+  </div>
+
+  <div class="card full" style="margin-top:16px">
+    <h2>用 ADV 打开 / 导出高清图</h2>
+    <div class="desc">点击在 ADV 工具中打开（纸白/酒红主题，可导出 2× PNG、可分享）</div>
+    <div class="adv-links" id="adv-links"></div>
+  </div>
+
+  <div class="foot">
+    <b>数据说明</b>：指数日线（1990-12-19 起）· 全A面板（2016–2026，中证全指成分）· 主题板块=110同花顺行业→20主题映射·
+    指标分位为近10年滚动窗口。<b>注意</b>：面板/行业数据最后更新 2026-08-28，早于指数 2026-11-10，存在数据新鲜度差。
+    历史规律不代表未来，本仪表盘仅供复盘研究，不构成投资建议。
+  </div>
+</div>
+
+<script src="echarts.min.js"></script>
+<script src="data.js"></script>
+<script>
+(function () {
+  var D = window.DASH;
+  document.getElementById('asof-index').textContent = D.asof_index;
+  document.getElementById('asof-market').textContent = D.asof_market;
+
+  var ACCENT='#1f4e79', BULL='#c0392b', BEAR='#2e7d5b', GRID='#eeeae1', GOLD='#d9a441';
+
+  // ---- 综合评分横幅 ----
+  (function () {
+    var s = D.score;
+    var el = document.getElementById('verdict');
+    var clock = s.clock, cyc = s.cycle;
+    var tags = '<span class="tag">周期：' + (cyc.bull_start||'') + ' 起 · 距高点 ' + (cyc.drawdown_from_peak) + '%</span>' +
+      '<span class="tag">宏观：' + clock.stage7 + '</span>' +
+      '<span class="tag">主线：' + (D.theme_rank.themes[0] ? D.theme_rank.themes[0].theme : '—') + '</span>';
+    el.innerHTML = '<div class="t">综合环境温度</div>' +
+      '<div><span class="big">' + s.composite_temp + '</span><span style="font-size:14px;opacity:.8">/ 100</span> ' + tags + '</div>' +
+      '<div class="txt" style="margin-top:6px">' + (s.verdict || '') + '</div>';
+  })();
+
+  // ---- 评分卡 KPI ----
+  var s = D.score;
+  function pctBar(v, raw) {
+    if (v === null || v === undefined) return '<i style="width:0"></i>';
+    var p = raw ? v : v; // 0-1 or 0-100
+    var pp = p > 1 ? p : p*100;
+    var color = pp < 40 ? BEAR : (pp > 80 ? BULL : GOLD);
+    return '<i style="width:' + pp + '%;background:' + color + '"></i>';
+  }
+  function pctText(v) { return (v===null||v===undefined)?'—':(v>1?v:v*100).toFixed(0)+'%'; }
+  var cards = [
+    { label:'上证指数', value:s.cycle.last, pct:'距高点 ' + s.cycle.drawdown_from_peak + '%' },
+    { label:'全A PE中位数', value:s.valuation.pe_median, pct:'分位 ' + pctText(s.valuation.pe_pctile), bar: s.valuation.pe_pctile },
+    { label:'全A PB中位数', value:s.valuation.pb_median, pct:'分位 ' + pctText(s.valuation.pb_pctile), bar: s.valuation.pb_pctile },
+    { label:'换手率', value:null, pct:'分位 ' + pctText(s.valuation.turnover_pctile), bar: s.valuation.turnover_pctile },
+    { label:'成交集中度(前5%)', value:null, pct:'分位 ' + pctText(s.valuation.concentration_pctile), bar: s.valuation.concentration_pctile },
+    { label:'融资余额', value:(s.sentiment.margin_balance_yi||0)+'亿', pct:'分位 ' + pctText(s.sentiment.margin_balance_pctile), bar: s.sentiment.margin_balance_pctile },
+  ];
+  var kpiEl = document.getElementById('kpis');
+  cards.forEach(function (c) {
+    var div = document.createElement('div');
+    div.className = 'kpi';
+    var v = (c.value===null||c.value===undefined)?'':c.value;
+    var bar = c.bar!==undefined ? '<div class="bar">'+pctBar(c.bar)+'</div>' : '';
+    div.innerHTML = '<div class="label">'+c.label+'</div><div class="value">'+v+'</div><div class="pct">'+c.pct+'</div>'+bar;
+    kpiEl.appendChild(div);
+  });
+
+  var charts = {};
+  function mk(id){ var el=document.getElementById(id); var c=echarts.init(el); charts[id]=c; return c; }
+  function base(){ return { grid:{left:50,right:18,top:30,bottom:34}, textStyle:{fontFamily:'-apple-system,"PingFang SC","Microsoft YaHei",sans-serif'} }; }
+
+  // ---- 长期走势 + 牛熊色带 ----
+  (function () {
+    var c = mk('c-long');
+    var labels = D.index.dates, sh = D.index.series['上证指数'];
+    var markArea = [];
+    D.cycles.forEach(function (cy) {
+      if (cy.peak) {
+        markArea.push([{xAxis:cy.start,name:cy.type+'·'+cy.theme},{xAxis:cy.peak,itemStyle:{color:'rgba(192,57,43,.10)'}}]);
+        if (cy.low) markArea.push([{xAxis:cy.peak,name:'熊市'},{xAxis:cy.low,itemStyle:{color:'rgba(46,125,91,.10)'}}]);
+      } else {
+        markArea.push([{xAxis:cy.start,name:cy.type+'·'+cy.theme},{xAxis:labels[labels.length-1],itemStyle:{color:'rgba(192,57,43,.10)'}}]);
+      }
+    });
+    c.setOption(Object.assign(base(), {
+      tooltip:{trigger:'axis'}, xAxis:{type:'category',data:labels,boundaryGap:false,axisLine:{lineStyle:{color:GRID}}},
+      yAxis:{type:'value',scale:true,splitLine:{lineStyle:{color:GRID}}},
+      series:[{name:'上证指数',type:'line',data:sh,smooth:true,showSymbol:false,lineStyle:{color:ACCENT,width:2},
+        areaStyle:{color:{type:'linear',x:0,y:0,x2:0,y2:1,colorStops:[{offset:0,color:'rgba(31,78,121,.18)'},{offset:1,color:'rgba(31,78,121,0)'}]}},
+        markArea:{silent:true,data:markArea}}]
+    }));
+  })();
+
+  // ---- 主线榜单（横向柱状）----
+  (function () {
+    var c = mk('c-rank');
+    var th = D.theme_rank.themes;
+    var names = [], vals = [], colors = [];
+    th.slice().reverse().forEach(function (r) {
+      names.push(r.theme); vals.push(r.excess_250d);
+      var col = {加速:BULL, 兑现:GOLD, 起涨:'#2c6a9f', 回落:BEAR, 垃圾时间:'#bbb'}[r.state] || '#999';
+      colors.push(col);
+    });
+    c.setOption(Object.assign(base(), {
+      tooltip:{trigger:'axis',axisPointer:{type:'shadow'}},
+      grid:{left:110,right:40,top:10,bottom:30},
+      xAxis:{type:'value',name:'250日超额%',splitLine:{lineStyle:{color:GRID}}},
+      yAxis:{type:'category',data:names,axisLine:{lineStyle:{color:GRID}},axisLabel:{fontSize:12}},
+      series:[{type:'bar',data:vals,itemStyle:{color:function(p){return colors[p.dataIndex];}},
+        label:{show:true,position:'right',fontSize:11,formatter:function(p){return (p.value>=0?'+':'')+p.value+'%';}}}]
+    }));
+  })();
+
+  // ---- 主线演进 ----
+  (function () {
+    var c = mk('c-evo');
+    var ev = D.theme_evo;
+    var palette = ['#c0392b','#1f4e79','#d9a441','#2e7d5b','#8e44ad','#16a085','#e67e22','#2980b9'];
+    var series = ev.themes.map(function (t, i) {
+      return { name:t, type:'line', data:ev.series[t], smooth:true, showSymbol:false, lineStyle:{color:palette[i%palette.length],width:2} };
+    });
+    c.setOption(Object.assign(base(), {
+      tooltip:{trigger:'axis'}, legend:{data:ev.themes, top:0, textStyle:{fontSize:11}},
+      xAxis:{type:'category',data:ev.dates,boundaryGap:false,axisLine:{lineStyle:{color:GRID}}},
+      yAxis:{type:'value',name:'累计超额%',splitLine:{lineStyle:{color:GRID}}},
+      series:series
+    }));
+  })();
+
+  // ---- ETF主题起涨散点 ----
+  (function () {
+    var c = mk('c-etf');
+    var themes = D.etf.themes;
+    var data = themes.map(function (r) {
+      return { name:r.theme, value:[r.excess_250d, r.excess_60d], n:r.n };
+    });
+    c.setOption(Object.assign(base(), {
+      tooltip:{formatter:function(p){ var d=p.data; return d.name+'<br>250日超额 '+d.value[0]+'%<br>60日超额 '+d.value[1]+'%<br>ETF数 '+d.n; }},
+      grid:{left:50,right:30,top:30,bottom:40},
+      xAxis:{type:'value',name:'250日超额%',splitLine:{lineStyle:{color:GRID}},scale:true},
+      yAxis:{type:'value',name:'60日超额%',splitLine:{lineStyle:{color:GRID}},scale:true},
+      series:[{
+        type:'scatter', data:data, symbolSize:function(v){ return 10 + Math.sqrt(v[2])*1.2; },
+        itemStyle:{color:'#1f4e79',opacity:.75},
+        label:{show:true,position:'top',fontSize:10,formatter:function(p){return p.data.name;}},
+        markLine:{silent:true,symbol:'none',lineStyle:{color:'#ccc',type:'dashed'},data:[{yAxis:5,label:{formatter:'起涨线 60d>5%'}}]},
+        markArea:{silent:true,data:[[{xAxis:-40,yAxis:5},{xAxis:15,yAxis:35,itemStyle:{color:'rgba(46,125,91,.07)'},name:'起涨区'}]]}
+      }]
+    }));
+  })();
+
+  // ---- 正在起涨ETF表 ----
+  (function () {
+    var tbody = document.getElementById('t-rising');
+    var rows = D.etf.rising_etf;
+    var html = '<tr><th>ETF</th><th>主题</th><th>60日超额</th><th>250日超额</th><th>状态</th></tr>';
+    rows.forEach(function (r) {
+      html += '<tr><td>'+r.name+'</td><td>'+r.theme+'</td><td style="color:#c0392b">'+(r.excess_60d>=0?'+':'')+r.excess_60d+'%</td><td>'+(r.excess_250d>=0?'+':'')+r.excess_250d+'%</td><td>'+r.state+'</td></tr>';
+    });
+    tbody.innerHTML = html;
+  })();
+
+  // ---- 上证 vs 沪深300 ----
+  (function () {
+    var c = mk('c-hs300');
+    var labels = D.index.dates, sh = D.index.series['上证指数'], hs = D.index.series['沪深300'];
+    c.setOption(Object.assign(base(), {
+      tooltip:{trigger:'axis'}, legend:{data:['上证指数','沪深300'],top:0},
+      xAxis:{type:'category',data:labels,boundaryGap:false,axisLine:{lineStyle:{color:GRID}}},
+      yAxis:{type:'value',scale:true,splitLine:{lineStyle:{color:GRID}}},
+      series:[
+        {name:'上证指数',type:'line',data:sh,smooth:true,showSymbol:false,lineStyle:{color:ACCENT,width:2}},
+        {name:'沪深300',type:'line',data:hs,smooth:true,showSymbol:false,lineStyle:{color:GOLD,width:2}}
+      ]
+    }));
+  })();
+
+  // ---- 全A PE ----
+  (function () {
+    var c = mk('c-pe');
+    var labels = D.market.dates, pe = D.market.pe_median;
+    c.setOption(Object.assign(base(), {
+      tooltip:{trigger:'axis'},
+      xAxis:{type:'category',data:labels,boundaryGap:false,axisLine:{lineStyle:{color:GRID}}},
+      yAxis:{type:'value',scale:true,splitLine:{lineStyle:{color:GRID}}},
+      series:[{name:'全A PE中位数',type:'line',data:pe,smooth:true,showSymbol:false,lineStyle:{color:BULL,width:2},
+        areaStyle:{color:{type:'linear',x:0,y:0,x2:0,y2:1,colorStops:[{offset:0,color:'rgba(192,57,43,.15)'},{offset:1,color:'rgba(192,57,43,0)'}]}},
+        markLine:{silent:true,symbol:'none',label:{formatter:'顶 56.5×'},lineStyle:{color:'#999',type:'dashed'},data:[{yAxis:56.5}]}}]
+    }));
+  })();
+
+  // ---- 换手率 + 成交额 ----
+  (function () {
+    var c = mk('c-turnover');
+    var labels = D.market.dates, to = D.market.turnover, amt = D.market.amount;
+    c.setOption(Object.assign(base(), {
+      tooltip:{trigger:'axis'}, legend:{data:['换手率中位数(%)','成交额(亿元)'],top:0},
+      xAxis:{type:'category',data:labels,boundaryGap:false,axisLine:{lineStyle:{color:GRID}}},
+      yAxis:[{type:'value',name:'换手率%',scale:true,splitLine:{lineStyle:{color:GRID}}},{type:'value',name:'亿元',scale:true,splitLine:{show:false}}],
+      series:[
+        {name:'换手率中位数(%)',type:'line',data:to,smooth:true,showSymbol:false,lineStyle:{color:ACCENT,width:2}},
+        {name:'成交额(亿元)',type:'line',yAxisIndex:1,data:amt,smooth:true,showSymbol:false,lineStyle:{color:GOLD,width:1.5}}
+      ]
+    }));
+  })();
+
+  // ---- 广度 + 集中度 ----
+  (function () {
+    var c = mk('c-breadth');
+    var labels = D.market.dates, up = D.market.up_ratio, conc = D.market.concentration;
+    c.setOption(Object.assign(base(), {
+      tooltip:{trigger:'axis'}, legend:{data:['上涨家数占比(%)','前5%成交集中度(%)'],top:0},
+      xAxis:{type:'category',data:labels,boundaryGap:false,axisLine:{lineStyle:{color:GRID}}},
+      yAxis:{type:'value',scale:true,splitLine:{lineStyle:{color:GRID}}},
+      series:[
+        {name:'上涨家数占比(%)',type:'line',data:up,smooth:true,showSymbol:false,lineStyle:{color:BEAR,width:2},areaStyle:{color:'rgba(46,125,91,.08)'}},
+        {name:'前5%成交集中度(%)',type:'line',data:conc,smooth:true,showSymbol:false,lineStyle:{color:BULL,width:2}}
+      ]
+    }));
+  })();
+
+  // ---- 投资时钟 GDP/CPI ----
+  (function () {
+    var c = mk('c-clock');
+    var cl = D.clock;
+    c.setOption(Object.assign(base(), {
+      tooltip:{trigger:'axis'}, legend:{data:['GDP同比%','CPI同比%'],top:0},
+      xAxis:{type:'category',data:cl.ym,boundaryGap:false,axisLine:{lineStyle:{color:GRID}}},
+      yAxis:{type:'value',splitLine:{lineStyle:{color:GRID}}},
+      series:[
+        {name:'GDP同比%',type:'line',data:cl.gdp_yoy,smooth:true,showSymbol:false,lineStyle:{color:ACCENT,width:2}},
+        {name:'CPI同比%',type:'line',data:cl.cpi_yoy,smooth:true,showSymbol:false,lineStyle:{color:BULL,width:2}}
+      ]
+    }));
+  })();
+
+  // ---- 周期表 ----
+  (function () {
+    var tbody = document.getElementById('t-cycles');
+    var html = '<tr><th>牛市起点</th><th>牛市高点</th><th>熊市低点</th><th>类型</th><th>主线</th></tr>';
+    D.cycles.forEach(function (cy) {
+      html += '<tr><td>'+cy.start+'</td><td>'+(cy.peak||'<span class="tag now">进行中</span>')+'</td><td>'+(cy.low||'—')+'</td><td>'+cy.type+'</td><td>'+cy.theme+'</td></tr>';
+    });
+    tbody.innerHTML = html;
+  })();
+
+  // ---- ADV 链接 ----
+  var advEl = document.getElementById('adv-links');
+  var advItems = [
+    ['上证指数长期走势（年度）', D.adv_links.long_history],
+    ['主线榜单（250日超额排名）', D.adv_links.theme_rank],
+    ['ETF主题起涨信号（60日超额）', D.adv_links.etf_rising],
+  ];
+  advItems.forEach(function (it) {
+    var a = document.createElement('a'); a.href=it[1]; a.target='_blank'; a.rel='noopener'; a.textContent=it[0]+' →'; advEl.appendChild(a);
+  });
+
+  window.addEventListener('resize', function(){ Object.keys(charts).forEach(function(k){ charts[k].resize(); }); });
+})();
+</script>
+</body>
+</html>

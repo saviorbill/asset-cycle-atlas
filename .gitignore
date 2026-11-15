@@ -1,0 +1,30 @@
+# 数据缓存（可由 src/ 脚本重新生成）
+cache/*.parquet
+cache/*.csv
+cache/*.json
+cache/cycle_stats_raw/
+cache/*.bak*
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# 系统
+.DS_Store
+*.swp
+
+# 编辑器
+.vscode/
+.idea/
+
+# 临时
+*.log
+/tmp/
+
+# 券商研报原文（版权材料，不入开源库）
+raw_pdf/
+
+# 备份
+*.bak*

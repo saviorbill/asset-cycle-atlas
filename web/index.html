@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Where are we? · 金融资产周期研究</title>
+<link rel="preload" href="fonts/noto-serif-sc.woff2" as="font" type="font/woff2" crossorigin />
+<link rel="stylesheet" href="style.css?v=20261115p" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 34 34'%3E%3Crect width='34' height='34' rx='7' fill='%230E1F35'/%3E%3Cpath d='M8 24 L14 15 L19 19 L27 9' stroke='%23C2A878' stroke-width='2.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='27' cy='9' r='2.2' fill='%23C2A878'/%3E%3C/svg%3E" />
+</head>
+<body data-view="intro">
+
+<!-- 顶部品牌栏 + 功能栏 -->
+<header class="brand">
+  <svg class="logo" viewBox="0 0 30 30">
+    <rect x="0.5" y="0.5" width="29" height="29" rx="6" fill="#0E1F35"/>
+    <path d="M7 20 L12 13 L16 16.5 L23 8" stroke="#C2A878" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="23" cy="8" r="2.2" fill="#C2A878"/>
+  </svg>
+  <div class="name">Where are we?</div>
+  <div class="divider"></div>
+  <div class="tag">金融资产周期研究</div>
+
+  <nav class="topnav">
+    <a class="tn-item active" data-view="intro">首页介绍</a>
+    <a class="tn-item" data-view="current">当前观察</a>
+    <div class="tn-item has-menu" id="nav-assets">
+      资产周期 <span class="caret">▾</span>
+      <div class="menu">
+        <div class="menu-label">资产类别</div>
+        <div class="menu-item has-sub">
+          股票 <span class="sub-arr">›</span>
+          <div class="menu sub">
+            <div class="menu-label">股票市场</div>
+            <a class="menu-item" data-view="history">A股</a>
+            <div class="menu-item disabled">美股 <em>未上线</em></div>
+            <div class="menu-item disabled">日股 <em>未上线</em></div>
+          </div>
+        </div>
+        <div class="menu-item disabled">债券 <em>未上线</em></div>
+        <div class="menu-item disabled">商品 <em>未上线</em></div>
+        <div class="menu-item disabled">其他 <em>未上线</em></div>
+        <div class="menu-sep"></div>
+        <a class="menu-item" data-view="macro">宏观环境</a>
+      </div>
+    </div>
+    <a class="tn-item" data-view="academy">金融学院</a>
+  </nav>
+
+</header>
+
+<div class="main">
+
+  <!-- 全局研究口径：基准指数 + 观察区间 -->
+  <div class="scope-bar" id="scope-bar">
+    <div class="scope-group">
+      <span class="scope-label">基准指数</span>
+      <div class="scope-chips" id="scope-index"></div>
+    </div>
+    <div class="scope-group range">
+      <span class="scope-label">区间</span>
+      <div class="scope-chips" id="scope-range"></div>
+    </div>
+    <div class="scope-meta" id="scope-meta"></div>
+  </div>
+
+  <!-- ========== 1. 首页介绍 ========== -->
+  <section class="view active" id="view-intro">
+    <div class="hero">
+      <div class="hero-copy">
+        <div class="overline">金融资产周期研究 · 2005 — 2026</div>
+        <h1>History rhymes.<br>Read it.</h1>
+        <div class="cn-title">从历史中探寻当下及未来</div>
+        <div class="sub">把每一轮牛熊的<b>宏观·中观·微观环境、宏大叙事、主线板块</b>对齐到同一条时间轴上，还原周期形成与反转的完整机制。</div>
+        <div class="hero-actions">
+          <a class="btn solid" href="#current">进入当前观察 <span class="arr">→</span></a>
+        </div>
+      </div>
+      <div class="hero-figure">
+        <div class="hero-fig-head"><span class="t">上证指数</span><span class="r">2005 — 2026</span></div>
+        <div id="hero-chart"></div>
+        <div class="hero-fig-foot"><span class="v" id="hero-val">—</span><span class="chg" id="hero-chg">—</span><span class="note">牛市金 · 熊市青</span></div>
+      </div>
+    </div>
+
+    <div class="sec-head">
+      <div>
+        <div class="overline">Asset Selection</div>
+        <h2 class="section-title">资产类别</h2>
+      </div>
+      <div class="sec-meta">4 类资产 · 已上线 1</div>
+    </div>
+    <div class="asset-grid">
+      <a class="asset-card active" href="#history">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21V9M9 21V4M15 21v-7M21 21v-9"/></svg>
+        <span class="a-name">股票</span><span class="a-sub">A 股 · 已上线</span>
+      </a>
+      <div class="asset-card disabled">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8l4 4 4-4 4 4 4-4"/><path d="M4 20h16"/></svg>
+        <span class="a-name">债券</span><span class="a-sub">未上线</span>
+      </div>
+      <div class="asset-card disabled">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 5v8l-8 5-8-5V8z"/><path d="M12 8v8M8 12h8"/></svg>
+        <span class="a-name">商品</span><span class="a-sub">未上线</span>
+      </div>
+      <div class="asset-card disabled">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M7 12h10"/></svg>
+        <span class="a-name">其他</span><span class="a-sub">未上线</span>
+      </div>
+    </div>
+
+    <div class="sec-head" style="margin-top:56px">
+      <div>
+        <div class="overline">Financial Cycle Retrospective Framework</div>
+        <h2 class="section-title">研究框架</h2>
+      </div>
+      <div class="sec-meta">四步框架</div>
+    </div>
+    <div class="cards framework">
+      <div class="card"><div class="idx">01</div><h3>周期定位</h3><p>我们在哪一轮、哪个阶段？用指数走势与牛熊分段，判断当前处于底部、牛市初中后期、顶点还是转熊。</p></div>
+      <div class="card"><div class="idx">02</div><h3>驱动及反转</h3><p>是什么在推动？宏观政策、产业趋势、宏大叙事与资金行为如何共振，又因何松动、反转。</p></div>
+      <div class="card"><div class="idx">03</div><h3>指标监测</h3><p>用什么验证？估值、成交、融资、集中度、广度与宏观指标，逐项定位当前在历史的分位。</p></div>
+      <div class="card"><div class="idx">04</div><h3>当前映射</h3><p>当下像谁？把当前走势与历史相似时期重合比对，给出历史后续路径作为参照。</p></div>
+    </div>
+  </section>
+
+  <!-- ========== 2. 历史复盘（A股） ========== -->
+  <section class="view" id="view-history">
+    <div class="page-head">
+      <div>
+        <div class="overline">A-Share · Cycle Review</div>
+        <h1 class="page-title">A股五轮牛熊复盘</h1>
+      </div>
+      <div class="page-meta">2005 — 2026 · 5 轮周期</div>
+    </div>
+
+    <div class="chart-card">
+      <div class="chart" id="chart-history"></div>
+    </div>
+
+    <div class="cycle-tabs" id="cycle-tabs"></div>
+
+    <div id="cycle-detail"></div>
+  </section>
+
+  <!-- ========== 3. 当前观察 ========== -->
+  <section class="view" id="view-current">
+    <div class="page-head">
+      <div>
+        <div class="overline">Current Regime</div>
+        <h1 class="page-title">当前观察</h1>
+      </div>
+      <div class="page-meta" id="dash-asof"></div>
+    </div>
+
+    <div class="dash" id="dash"></div>
+
+    <div class="chart-card">
+      <div class="card-head"><h2>历史相似走势</h2><span class="asof" id="sim-asof"></span></div>
+      <div class="chart-toolbar" id="sim-toolbar"></div>
+      <div class="chart" id="chart-sim" style="height:360px"></div>
+      <div class="sim-block" id="sim-cards"></div>
+      <div class="scenario-block" id="sim-scenario"></div>
+    </div>
+
+    <div class="sec-head">
+      <div>
+        <div class="overline">Key Indicators · Historical Position</div>
+        <h2 class="section-title">关键指标 · 历史位置</h2>
+      </div>
+      <div class="sec-meta">3 项长周期 · 14 项全A</div>
+    </div>
+    <div class="ind-sub" id="ind-long-head"><b>长周期 · 上证指数</b><span>指数口径 · 周频</span></div>
+    <div class="ind-grid three" id="ind-long"></div>
+    <div class="ind-sub"><b>全A 结构指标</b><span>2016 起 · 周频</span></div>
+    <div class="ind-grid" id="ind-grid"></div>
+  </section>
+
+  <!-- ========== 4. 宏观环境 ========== -->
+  <section class="view" id="view-macro">
+    <div class="page-head">
+      <div>
+        <div class="overline">Macro Environment</div>
+        <h1 class="page-title">宏观环境</h1>
+      </div>
+      <div class="page-meta" id="macro-meta">ADV 中国宏观</div>
+    </div>
+    <div class="chart-card" id="macro-corr-card">
+      <div class="card-head"><h2>宏观指标与牛熊的相关性</h2><span class="asof" id="macro-corr-asof"></span></div>
+      <div id="macro-corr-body"></div>
+    </div>
+    <div class="ind-grid" id="macro-grid"></div>
+  </section>
+
+  <!-- ========== 5. 金融学院 ========== -->
+  <section class="view" id="view-academy">
+    <div class="page-head">
+      <div>
+        <div class="overline">Academy</div>
+        <h1 class="page-title">金融学院</h1>
+      </div>
+      <div class="page-meta">即将上线</div>
+    </div>
+  </section>
+
+  <div class="foot">
+    <b>数据说明</b>：指数 K 线为日线（上证 1990 起，沪深300 2005 起，创业板 2010 起）；全A 指标为周频（2016 起），指数 PE/PB/换手为周频（各指数自上市起，中证2000 暂未接入）；本地数据截至 <span id="foot-asof">—</span>，各指标实际截止日期见卡片右上角。历史规律不代表未来，仅供复盘研究，不构成投资建议。
+  </div>
+</div>
+
+<script src="echarts.min.js"></script>
+<script src="data.js?v=20261115b"></script>
+<script src="cycle_stats.js?v=20261115a"></script>
+<script src="app.js?v=20261115z9"></script>
+</body>
+</html>
