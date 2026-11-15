@@ -306,6 +306,30 @@
     renderMacro();
   }
 
+  // ---------- K线懒加载（data-kline.js 约2.5MB，首次进入复盘/当前观察时再下） ----------
+  let _klineLoading = false, _klineLoaded = false, _klineQueue = [];
+  function ensureKline(cb) {
+    if (_klineLoaded || (W.kline && W.kline['上证指数'] && W.kline['上证指数'].open)) {
+      _klineLoaded = true; if (cb) cb(); return;
+    }
+    if (cb) _klineQueue.push(cb);
+    if (_klineLoading) return;
+    _klineLoading = true;
+    var s2 = document.createElement('script');
+    s2.src = 'data-kline.js';
+    s2.async = true;
+    s2.onload = function () {
+      if (window.WAW_KLINE) W.kline = window.WAW_KLINE;
+      _klineLoaded = true; _klineLoading = false;
+      _klineQueue.splice(0).forEach(function (f) { try { f(); } catch (e) { console.error(e); } });
+    };
+    s2.onerror = function () {
+      _klineLoading = false;
+      _klineQueue.splice(0).forEach(function (f) { try { f(); } catch (e) { console.error(e); } });
+    };
+    document.head.appendChild(s2);
+  }
+
   // ---------- 视图切换 ----------
   let histInit = false, curInit = false, macroInit = false;
   function go(view) {
@@ -316,12 +340,21 @@
     const _assets = document.getElementById('nav-assets');
     if (_assets) _assets.classList.toggle('active', view === 'history' || view === 'macro');
     window.scrollTo({ top: 0, behavior: 'smooth' });
-    if (view === 'history' && !histInit) { histInit = true; setTimeout(renderHistory, 40); }
-    if (view === 'current' && !curInit) { curInit = true; setTimeout(renderCurrent, 40); }
+    if (view === 'history' && !histInit) {
+      histInit = true;
+      ensureKline(function () {
+        setTimeout(function () {
+          var cy = (window.WAW && W.cycles.find(c => c.id === histCycle)) || W.cycles[W.cycles.length - 1];
+          renderCycleDetail(cy);
+          renderHistory();
+        }, 40);
+      });
+    }
+    if (view === 'current' && !curInit) { curInit = true; ensureKline(function () { setTimeout(renderCurrent, 40); }); }
     if (view === 'macro' && !macroInit) { macroInit = true; setTimeout(renderMacro, 40); }
     setTimeout(() => Object.values(charts).forEach(c => c.resize()), 80);
     // 复盘页首次可见后再建对照图，避免在隐藏容器里按 0 宽初始化
-    if (view === 'history') setTimeout(function () { updateCycleLens(true); }, 140);
+    if (view === 'history') ensureKline(function () { setTimeout(function () { updateCycleLens(true); }, 60); });
   }
   $$('.tn-item[data-view], .menu-item[data-view]').forEach(n => n.addEventListener('click', () => go(n.dataset.view)));
 
@@ -771,8 +804,7 @@
       $$('.cycle-tab', box).forEach(t => t.classList.remove('active')); tab.classList.add('active');
       const cy = W.cycles[+tab.dataset.i];
       histCycle = cy.id;
-      renderCycleDetail(cy);
-      renderHistory();
+      ensureKline(function () { renderCycleDetail(cy); renderHistory(); });
     }));
   }
 
@@ -1906,7 +1938,7 @@
     const tabs = $$('.cycle-tab'); if (tabs.length) tabs[tabs.length - 1].classList.add('active');
     const last = W.cycles[W.cycles.length - 1];
     histCycle = last.id;
-    renderCycleDetail(last);
+    // renderCycleDetail 延后到进入历史复盘页时再执行（K线懒加载）
   })();
   window.addEventListener('resize', function () {
     Object.values(charts).forEach(c => c.resize());

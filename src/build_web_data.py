@@ -651,10 +651,16 @@ def main():
         "similarity": sim,
         "kline": _kl,
     }
+    # 拆分：核心数据 data.js（首屏用） + K线 data-kline.js（按需懒加载）
+    kline = payload.pop("kline", {})
     out = os.path.join(WEB, "data.js")
     with open(out, "w", encoding="utf-8") as f:
         f.write("window.WAW=" + json.dumps(payload, ensure_ascii=False) + ";")
+    out_k = os.path.join(WEB, "data-kline.js")
+    with open(out_k, "w", encoding="utf-8") as f:
+        f.write("window.WAW_KLINE=" + json.dumps(kline, ensure_ascii=False) + ";")
     print("已生成:", out, "| 大小:", round(os.path.getsize(out) / 1024, 0), "KB")
+    print("已生成:", out_k, "| 大小:", round(os.path.getsize(out_k) / 1024, 0), "KB")
     print("周期数:", len(CYCLES), "| 主图周数:", len(main_series["dates"]))
     print("相似度(20日):", sim["20"])
 
