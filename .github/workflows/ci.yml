@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: JS 语法检查
+        run: node --check web/app.js
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Python 语法检查
+        run: python -m py_compile src/*.py
+
+      - name: 关键文件完整性
+        run: |
+          for f in web/index.html web/style.css web/app.js web/data.js web/echarts.min.js README.md LICENSE; do
+            test -f "$f" || { echo "缺少 $f"; exit 1; }
+          done
+          echo "关键文件齐全"
+
+      - name: data.js 结构检查（window.WAW）
+        run: |
+          node -e "
+            const fs=require('fs');
+            const s=fs.readFileSync('web/data.js','utf8');
+            if(!s.includes('window.WAW')) { console.error('data.js 缺少 window.WAW'); process.exit(1); }
+            console.log('data.js OK, 大小', (s.length/1024/1024).toFixed(1), 'MB');
+          "

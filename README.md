@@ -1,5 +1,9 @@
 # Where are we? · 大类金融资产周期复盘
 
+[![CI](https://github.com/saviorbill/asset-cycle-atlas/actions/workflows/ci.yml/badge.svg)](https://github.com/saviorbill/asset-cycle-atlas/actions/workflows/ci.yml)
+[![Deploy](https://github.com/saviorbill/asset-cycle-atlas/actions/workflows/pages.yml/badge.svg)](https://github.com/saviorbill/asset-cycle-atlas/actions/workflows/pages.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 用同一套框架（周期定位 → 驱动及反转 → 指标监测 → 当前映射）回答一个问题：**现在，各类金融资产走到了周期的哪一步？**
 
 > 当前已实现 **A股**（7 大指数 K 线、牛熊阶段、历史相似期、指标分位）；**债券 / 商品 / 其他资产** 已在导航中预留，规划中。
