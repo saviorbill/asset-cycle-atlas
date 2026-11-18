@@ -99,44 +99,79 @@ def load_indicators():
 
 
 
-# K线（OHLC 日线）数据文件
+# K线（OHLC 日线）数据文件（已从桌面移入项目 data/index_kline/）
+KLINE_DIR = os.path.join(PROJ, "data", "index_kline")
 KLINE_FILES = {
-    "上证指数": "/Users/kunrongcai/Desktop/K线导出_000001_日线数据.xlsx",
-    "沪深300": "/Users/kunrongcai/Desktop/K线导出_000300_日线数据 23.22.12.xlsx",
-    "创业板指": "/Users/kunrongcai/Desktop/K线导出_399006_日线数据.xlsx",
-    "中证500": "/Users/kunrongcai/Desktop/K线导出_399905_日线数据.xlsx",
-    "中证1000": "/Users/kunrongcai/Desktop/K线导出_399852_日线数据.xlsx",
-    "中证2000": "/Users/kunrongcai/Desktop/K线导出_932000_日线数据.xlsx",
-    "科创50": "/Users/kunrongcai/Desktop/K线导出_000688_日线数据.xlsx",
+    "上证指数": os.path.join(KLINE_DIR, "K线导出_000001_日线数据.xlsx"),
+    "沪深300": os.path.join(KLINE_DIR, "K线导出_000300_日线数据 23.22.12.xlsx"),
+    "创业板指": os.path.join(KLINE_DIR, "K线导出_399006_日线数据.xlsx"),
+    "中证500": os.path.join(KLINE_DIR, "K线导出_399905_日线数据.xlsx"),
+    "中证1000": os.path.join(KLINE_DIR, "K线导出_399852_日线数据.xlsx"),
+    "中证2000": os.path.join(KLINE_DIR, "K线导出_932000_日线数据.xlsx"),
+    "科创50": os.path.join(KLINE_DIR, "K线导出_000688_日线数据.xlsx"),
 }
 
 TENCENT_CODES = {
     "上证指数": "sh000001", "沪深300": "sh000300", "创业板指": "sz399006",
     "中证500": "sh000905", "中证1000": "sh000852", "科创50": "sh000688",
 }
+EASTMONEY_SECIDS = {
+    "上证指数": "1.000001", "沪深300": "1.000300", "创业板指": "0.399006",
+    "中证500": "1.000905", "中证1000": "1.000852", "中证2000": "2.932000", "科创50": "1.000688",
+}
 
-def _fetch_tencent_tail(name, days=8):
-    """从腾讯行情补最新日线（OHLC+成交量，单位为手），成交额按前日比例估算。"""
+
+def _fetch_eastmoney_tail(name, days=8):
+    """东方财富行情兜底（腾讯没有的指数，如中证2000），含真实成交额。"""
     import requests, time
-    code = TENCENT_CODES.get(name)
-    if not code:
+    secid = EASTMONEY_SECIDS.get(name)
+    if not secid:
         return []
+    import datetime as _dt
+    _beg = (_dt.datetime.now() - _dt.timedelta(days=days * 4 + 20)).strftime("%Y%m%d")
+    _end = _dt.datetime.now().strftime("%Y%m%d")
     for _ in range(3):
         try:
-            r = requests.get("https://web.ifzq.gtimg.cn/appstock/app/fqkline/get",
-                             params={"param": f"{code},day,,,{days},qfq"}, timeout=12,
-                             headers={"User-Agent": "Mozilla/5.0"})
-            d = r.json().get("data", {}).get(code, {})
-            kl = d.get("qfqday") or d.get("day") or []
-            out = []
-            for p in kl:
-                out.append({"date": p[0], "open": float(p[1]), "close": float(p[2]),
-                            "high": float(p[3]), "low": float(p[4]), "vol": float(p[5]) * 100})
-            if out:
+            r = requests.get("https://push2his.eastmoney.com/api/qt/stock/kline/get",
+                             params={"secid": secid, "fields1": "f1",
+                                     "fields2": "f51,f52,f53,f54,f55,f56,f57",
+                                     "klt": "101", "fqt": "1", "beg": _beg, "end": _end}, timeout=15,
+                             headers={"User-Agent": "Mozilla/5.0", "Referer": "https://quote.eastmoney.com/"})
+            d = r.json().get("data")
+            if d and d.get("klines"):
+                out = []
+                for line in d["klines"][-days:]:
+                    p = line.split(",")
+                    out.append({"date": p[0], "open": float(p[1]), "close": float(p[2]),
+                                "high": float(p[3]), "low": float(p[4]),
+                                "vol": float(p[5]) * 100, "amt": float(p[6]) if len(p) > 6 else None})
                 return out
         except Exception:
             time.sleep(1.5)
     return []
+
+
+def _fetch_tencent_tail(name, days=8):
+    """从腾讯行情补最新日线（OHLC+成交量，单位为手）；腾讯无该指数时用东方财富兜底。"""
+    import requests, time
+    code = TENCENT_CODES.get(name)
+    if code:
+        for _ in range(3):
+            try:
+                r = requests.get("https://web.ifzq.gtimg.cn/appstock/app/fqkline/get",
+                                 params={"param": f"{code},day,,,{days},qfq"}, timeout=12,
+                                 headers={"User-Agent": "Mozilla/5.0"})
+                d = r.json().get("data", {}).get(code, {})
+                kl = d.get("qfqday") or d.get("day") or []
+                out = []
+                for p in kl:
+                    out.append({"date": p[0], "open": float(p[1]), "close": float(p[2]),
+                                "high": float(p[3]), "low": float(p[4]), "vol": float(p[5]) * 100})
+                if out:
+                    return out
+            except Exception:
+                time.sleep(1.5)
+    return _fetch_eastmoney_tail(name, days)
 
 
 INDEX_CSV = os.path.join(PROJ, "data_index_daily.csv")
@@ -202,7 +237,7 @@ def load_kline():
                             _est = (_pa * (_b["vol"] / _pv)) if (_pa and _pv and _b["vol"]) else None
                             _dates.append(_b["date"]); _o.append(round(_b["open"], 2)); _h.append(round(_b["high"], 2))
                             _l.append(round(_b["low"], 2)); _c.append(round(_b["close"], 2))
-                            _v.append(_b["vol"]); _a.append(round(_est, 0) if _est else None)
+                            _v.append(_b["vol"]); _a.append(round(_b["amt"], 0) if _b.get("amt") else (round(_est, 0) if _est else None))
                             if _b["vol"]: _pv = _b["vol"]
                             if _est: _pa = _est
             except Exception as _e:

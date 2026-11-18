@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Where are we? · 金融资产周期研究</title>
 <link rel="preload" href="fonts/noto-serif-sc.woff2" as="font" type="font/woff2" crossorigin />
-<link rel="stylesheet" href="style.css?v=20261116a" />
+<link rel="stylesheet" href="style.css?v=20261118h" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 34 34'%3E%3Crect width='34' height='34' rx='7' fill='%230E1F35'/%3E%3Cpath d='M8 24 L14 15 L19 19 L27 9' stroke='%23C2A878' stroke-width='2.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='27' cy='9' r='2.2' fill='%23C2A878'/%3E%3C/svg%3E" />
 </head>
 <body data-view="intro">
@@ -51,17 +51,16 @@
 
 <div class="main">
 
-  <!-- 全局研究口径：基准指数 + 观察区间 -->
+  <!-- 全局研究口径：当前观察/宏观保留基准指数；A 股复盘页只保留牛熊周期 -->
   <div class="scope-bar" id="scope-bar">
-    <div class="scope-group">
+    <div class="scope-group scope-group-index">
       <span class="scope-label">基准指数</span>
       <div class="scope-chips" id="scope-index"></div>
     </div>
-    <div class="scope-group range">
-      <span class="scope-label">区间</span>
-      <div class="scope-chips" id="scope-range"></div>
+    <div class="scope-group scope-cycles">
+      <span class="scope-label" id="cycle-scope-label">牛熊周期</span>
+      <div class="cycle-tabs" id="cycle-tabs"></div>
     </div>
-    <div class="scope-meta" id="scope-meta"></div>
   </div>
 
   <!-- ========== 1. 首页介绍 ========== -->
@@ -138,9 +137,12 @@
       <div class="chart" id="chart-history"></div>
     </div>
 
-    <div class="cycle-tabs" id="cycle-tabs"></div>
+    <div id="cycle-overview"></div>
+  </section>
 
-    <div id="cycle-detail"></div>
+  <!-- ========== 2b. 单轮牛熊完整叙事 ========== -->
+  <section class="view" id="view-cycle">
+    <div id="cycle-page"></div>
   </section>
 
   <!-- ========== 3. 当前观察 ========== -->
@@ -209,8 +211,10 @@
 </div>
 
 <script src="echarts.min.js"></script>
-<script src="data.js?v=20261116a"></script>
-<script src="cycle_stats.js?v=20261116a"></script>
-<script src="app.js?v=20261116a"></script>
+<script src="data.js?v=20261117a"></script>
+<script src="cycle_stats.js?v=20261117b"></script>
+<script src="cycle_analysis.js?v=20261117a"></script>
+<script src="pullback_stats.js?v=20261117a"></script>
+<script src="app.js?v=20261118h"></script>
 </body>
 </html>

@@ -86,7 +86,7 @@ def main():
 
     panel = pq.read_table(PANEL_PARQUET, columns=['date', 'ticker', 'close', 'close_raw']).to_pandas()
     panel['date'] = pd.to_datetime(panel['date'])
-    panel = panel[panel['date'] >= last - pd.Timedelta(days=430)]
+    panel = panel[panel['date'] >= last - pd.Timedelta(days=760)]  # 需 >252 交易日
     panel = panel.sort_values(['ticker', 'date'])
     # 部分日期复权收盘价缺失，但未复权价完整。用最近有效复权因子补齐，
     # 否则 200/252 日 rolling 窗口会被 NaN 截断，广度/新高新低只统计到一半股票。
@@ -153,6 +153,8 @@ def main():
     # concat 会保留原索引，panel 与 tail 的索引会重复；rolling 结果按索引对齐时
     # 会发生错位，导致 above200/new_high 只落到极少数股票上。必须先重建唯一索引。
     combined = combined.reset_index(drop=True)
+    # 前向填充 close，避免个别 NaN 让 252 日窗口整体失效（新高/新低全 0）
+    combined['close'] = combined.groupby('ticker', sort=False)['close'].ffill()
     g = combined.groupby('ticker', sort=False)
     combined['ma200'] = g['close'].rolling(200, min_periods=200).mean().reset_index(level=0, drop=True)
     combined['hi252'] = g['close'].rolling(252, min_periods=252).max().reset_index(level=0, drop=True)

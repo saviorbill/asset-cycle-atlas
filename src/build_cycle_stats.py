@@ -23,6 +23,7 @@ import json
 import time
 import math
 import hashlib
+import statistics
 from collections import defaultdict
 from datetime import datetime, timedelta
 
@@ -211,6 +212,48 @@ def clean_name(name):
     return name.strip()
 
 
+def _q(vals, p):
+    if not vals:
+        return None
+    vals = sorted(vals)
+    k = (len(vals) - 1) * p
+    lo, hi = int(math.floor(k)), int(math.ceil(k))
+    if lo == hi:
+        return round(vals[lo], 2)
+    return round(vals[lo] * (hi - k) + vals[hi] * (k - lo), 2)
+
+
+def stock_stats(records):
+    vals = [r['ret'] for r in records]
+    if not vals:
+        return {}
+    vals_sorted = sorted(vals)
+    return {
+        'n': len(vals),
+        'avg': round(sum(vals) / len(vals), 2),
+        'median': round(statistics.median(vals), 2),
+        'p10': _q(vals, 0.10), 'p90': _q(vals, 0.90),
+        'up_ratio': round(sum(1 for v in vals if v > 0) / len(vals) * 100, 1),
+        'top10_avg': round(sum(vals_sorted[-10:]) / min(10, len(vals)), 2),
+        'bottom10_avg': round(sum(vals_sorted[:10]) / min(10, len(vals)), 2),
+    }
+
+
+def industry_stats(industries):
+    vals = [x['ret'] for x in industries]
+    if not vals:
+        return {}
+    vals_sorted = sorted(vals)
+    return {
+        'n': len(vals),
+        'avg': round(sum(vals) / len(vals), 2),
+        'median': round(statistics.median(vals), 2),
+        'up_ratio': round(sum(1 for v in vals if v > 0) / len(vals) * 100, 1),
+        'top10_avg': round(sum(vals_sorted[-10:]) / min(10, len(vals)), 2),
+        'bottom10_avg': round(sum(vals_sorted[:10]) / min(10, len(vals)), 2),
+    }
+
+
 def compute_phase(members, basic, start, end):
     start8, end8 = start.replace('-', ''), end.replace('-', '')
     d0, c0, a0 = load_px(start)
@@ -218,6 +261,7 @@ def compute_phase(members, basic, start, end):
     imap = membership_map(members)
 
     records = []
+    excluded = {'st': 0, 'delisted': 0}
     for code in set(c0) & set(c1) & set(a0) & set(a1):
         if not (code.endswith('.SH') or code.endswith('.SZ')):
             continue  # 仅沪深 A 股
@@ -226,6 +270,13 @@ def compute_phase(members, basic, start, end):
             continue
         if info['list_date'] >= start8:
             continue  # 剔除阶段内上市新股
+        raw_name = (info['name'] or '').upper()
+        if info['delisted']:
+            excluded['delisted'] += 1
+            continue  # 剔除退市股
+        if 'ST' in raw_name:
+            excluded['st'] += 1
+            continue  # 剔除 ST / *ST
         v0, v1 = c0[code] * a0[code], c1[code] * a1[code]
         if v0 <= 0 or v1 <= 0:
             continue
@@ -260,6 +311,9 @@ def compute_phase(members, basic, start, end):
         'stocks': stocks[:10],
         'industries_bottom': sorted(industries, key=lambda x: x['ret'])[:10],
         'stocks_bottom': list(reversed(stocks[-10:])),
+        'stock_stats': stock_stats(records),
+        'industry_stats': industry_stats(industries),
+        'excluded': excluded,
         'coverage': {
             'stocks': len(records),
             'industries': len(industries),
@@ -277,8 +331,8 @@ def main():
     out = {
         'asof': '2026-11-13',
         'method': {
-            'industry': '申万一级（当前分类回溯），阶段起点成员等权；样本少于 %d 只不参与排名' % MIN_INDUSTRY_STOCKS,
-            'stock': '沪深A股，复权价；剔除阶段内上市新股；仅统计阶段起止均有行情',
+            'industry': '申万一级（当前分类回溯），阶段起点成员等权；剔除 ST/退市股；样本少于 %d 只不参与排名' % MIN_INDUSTRY_STOCKS,
+            'stock': '沪深A股，复权价；剔除 ST/退市股与阶段内上市新股；仅统计阶段起止均有行情',
         },
         'cycles': {},
     }

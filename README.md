@@ -128,7 +128,7 @@ cd src
 
 1. **`web/data.js` 是生成物**，不要手改——改完会被下次 `build_web_data.py` 覆盖。要改数据就改 `src/` 里的脚本再重跑。
 2. **页面直接双击 `web/index.html` 就能开**（数据用 `<script>` 加载，file:// 可用）；但推荐 Live Server，改完自动刷新。
-3. **K线 Excel 在桌面**：`~/Desktop/K线导出_000001_日线数据.xlsx` 等 7 个文件。`load_kline()` 读它们 + 腾讯接口补最新几天；文件缺失时会用 `data_index_daily.csv` 收盘价兜底。
+3. **K线 Excel 在项目内**：`data/index_kline/K线导出_000001_日线数据.xlsx` 等 7 个文件。`load_kline()` 读它们 + 腾讯接口补最新几天；文件缺失时会用 `data_index_daily.csv` 收盘价兜底。
 4. **API Key 不写在代码里**：通过环境变量 `DATAHUB_API_KEY` 提供（`src/fetch_api_data.py` / `src/update_indicators.py` 读取）。开源时切勿提交真实 Key。
 5. **图表尺寸**：每个图表容器 `<div class="chart" id="...">` 的高度在 CSS 里定义（`.chart` / `.chart.mid`），"全部"对比图会动态设高度。
 6. **改完 app.js 建议先跑一下语法检查**（VSCode 会标红），页面按 `⌘⇧R` 刷新看控制台报错。
