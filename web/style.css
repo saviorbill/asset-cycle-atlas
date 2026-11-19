@@ -1550,3 +1550,12 @@ body[data-view="cycle"] .scope-cycles { margin-left: 0; }
 .rs-item em { font-style: normal; font-size: 12px; color: var(--gold); font-variant-numeric: tabular-nums; }
 .rs-meta { margin-left: auto; font-size: 11.5px; color: var(--faint); }
 @media (max-width: 720px) { .rs-meta { margin-left: 0; width: 100%; } }
+
+/* ---------- 精简「数据截至」：每页只保留大标题旁/工具栏那一处 ---------- */
+.card-head .asof,
+#concl-asof,
+#hist-asof,
+#ml-asof,
+#nsf-asof,
+#mp-asof,
+#macro-corr-asof { display: none !important; }
