@@ -12,7 +12,8 @@ SRC = os.path.dirname(os.path.abspath(__file__))
 PROJ = os.path.dirname(SRC)
 sys.path.insert(0, SRC)
 sys.path.insert(0, PROJ)
-from config import INDEX_CSV, CACHE_DIR, MARGIN_CSV, LIMIT_CPT_CSV, LIMIT_DAILY_CSV, HK_HOLD_CSV, ADV_MACRO_PATH
+from config import (INDEX_CSV, INDEX_KLINE_DIR, CACHE_DIR, MARGIN_CSV,
+                    LIMIT_CPT_CSV, LIMIT_DAILY_CSV, HK_HOLD_CSV, ADV_MACRO_PATH)
 
 WEB = os.path.join(PROJ, "web")
 os.makedirs(WEB, exist_ok=True)
@@ -26,16 +27,26 @@ def load_index_history():
     df = pd.read_csv(fp, parse_dates=["trade_date"])
     out = {}
     for name, g in df.groupby("name"):
+        proj = g[g["source"].astype(str).str.startswith("ak")] \
+            if "source" in g.columns else g.iloc[0:0]
+        proj_start = (proj["trade_date"].min().strftime("%Y-%m-%d")
+                      if len(proj) else None)
         d = (g.set_index("trade_date").sort_index()
              [["pe_ttm", "pb", "turnover_rate"]].dropna())
+        if not len(d):
+            continue
+        last_d = d.index.max()
         w = d.resample("W-FRI").last().dropna()
         if not len(w):
             continue
+        # 周频标签取周五，但最后一周可能只到周三：把它落回真实最后一日
+        labels = [min(x, last_d) for x in w.index]
         out[name] = {
-            "dates": [x.strftime("%Y-%m-%d") for x in w.index],
+            "dates": [x.strftime("%Y-%m-%d") for x in labels],
             "pe": [round(float(v), 2) for v in w["pe_ttm"]],
             "pb": [round(float(v), 2) for v in w["pb"]],
             "turnover": [round(float(v), 3) for v in w["turnover_rate"]],
+            "proj_start": proj_start,
         }
     return out
 
@@ -44,6 +55,18 @@ def load_index_history():
 def load_indicators():
     m = pd.read_parquet(os.path.join(CACHE_DIR, "market_daily.parquet"))
     m["date"] = pd.to_datetime(m["date"])
+    # 2005–2015 由「前复权」逐股 CSV 重建（build_market_agg_pre2016.py）
+    pre_fp = os.path.join(CACHE_DIR, "market_daily_pre2016.parquet")
+    if os.path.exists(pre_fp):
+        p = pd.read_parquet(pre_fp)
+        p["date"] = pd.to_datetime(p["date"])
+        p["total_mv"] = pd.to_numeric(p["total_mv"], errors="coerce") / 1e4   # 元 → 万元
+        keep = [c for c in m.columns if c in p.columns]
+        m = pd.concat([p[keep], m], ignore_index=True)
+        m = m.drop_duplicates("date").sort_values("date").reset_index(drop=True)
+        print("  并入 2005–2015：%d 天" % len(p))
+    else:
+        print("  未找到 2005–2015 重建文件，指标仍从 2016 起")
     m = m.sort_values("date").reset_index(drop=True)
 
     mg = pd.read_csv(MARGIN_CSV, usecols=["trade_date", "rzye"])
@@ -90,6 +113,8 @@ def load_indicators():
 
     out = {}
     mk = weekly(m, "date", ["pe_median", "pb_median", "turnover_median", "amount", "up_ratio", "concentration_top5", "total_mv"])
+    # 成交额/总市值：amount 为元，total_mv 为万元 → 换成同一量纲后取百分比
+    mk["amount_ratio"] = mk["amount"] / (mk["total_mv"] * 1e4) * 100
     out["mkt"] = mk
     out["margin"] = weekly(mg, "trade_date", ["rzye_yi"])
     out["margin_ratio"] = weekly(mgm, "trade_date", ["margin_ratio"])
@@ -99,8 +124,8 @@ def load_indicators():
 
 
 
-# K线（OHLC 日线）数据文件（已从桌面移入项目 data/index_kline/）
-KLINE_DIR = os.path.join(PROJ, "data", "index_kline")
+# K线（OHLC 日线）数据文件（A股数据/应用数据/index_kline/）
+KLINE_DIR = INDEX_KLINE_DIR
 KLINE_FILES = {
     "上证指数": os.path.join(KLINE_DIR, "K线导出_000001_日线数据.xlsx"),
     "沪深300": os.path.join(KLINE_DIR, "K线导出_000300_日线数据 23.22.12.xlsx"),
@@ -172,9 +197,6 @@ def _fetch_tencent_tail(name, days=8):
             except Exception:
                 time.sleep(1.5)
     return _fetch_eastmoney_tail(name, days)
-
-
-INDEX_CSV = os.path.join(PROJ, "data_index_daily.csv")
 
 
 def load_kline():
@@ -249,7 +271,7 @@ def load_kline():
 
 
 def _extend_index_daily(idx, kl):
-    """用 K 线数据补齐 data_index_daily.csv 未更新到的尾部（只追加 CSV 末日之后的日期）。
+    """用 K 线数据补齐 index_daily.csv 未更新到的尾部（只追加 CSV 末日之后的日期）。
 
     这样首页 hero、相似度、事件点位都能用上 K 线（含腾讯补数）的最新收盘，
     同时不修改原始 CSV 文件。
@@ -530,6 +552,7 @@ def main():
     indicators = {
         "margin": series(ind["margin_ratio"], "trade_date", "margin_ratio", 1.0),
         "amount": series(ind["mkt"], "date", "amount", 1 / 1e8),
+        "amount_ratio": series(ind["mkt"], "date", "amount_ratio", 1.0),
         "concentration": series(ind["mkt"], "date", "concentration_top5", 100.0),
         "pe": series(ind["mkt"], "date", "pe_median", 1.0),
         "pb": series(ind["mkt"], "date", "pb_median", 1.0),

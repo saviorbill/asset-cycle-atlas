@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """构建每轮牛熊的阶段统计（行业/个股 Top10）。
 
-数据源：datahubco（Tushare 代理）
+数据源：Tushare Pro（优先，TUSHARE_TOKEN）或 datahubco（DATAHUB_API_KEY 回退）
   - index-member-all：申万一级行业历史成员（含 in_date / out_date）
   - stock-basic：当前/退市股票列表（list_date、名称）
   - daily + adj-factor：阶段起止日的全市场收盘价与复权因子
@@ -42,6 +42,8 @@ WEB_JS = os.path.join(PROJ, 'web', 'cycle_stats.js')
 os.makedirs(RAW_DIR, exist_ok=True)
 
 MIN_INDUSTRY_STOCKS = 5
+# 本轮熊市终点（跟随数据更新，可用环境变量 CYCLE_ASOF 覆盖）
+ASOF = os.environ.get('CYCLE_ASOF', '2026-11-13')
 API_MIN_INTERVAL = 3.2
 _last_call = [0.0]
 
@@ -81,7 +83,7 @@ CYCLES = [
     {
         'id': 'c24now', 'name': '2024–至今 本轮',
         'bull': ('2024-02-05', '2026-05-13'),
-        'bear': ('2026-05-13', '2026-11-13'),
+        'bear': ('2026-05-13', ASOF),
         'start_cause': '924 政策组合拳、国家队托底，AI/算力产业趋势与全球资本开支共振',
         'end_cause': '2026-05 后高位拥挤、融资去杠杆，主线进入兑现期；是否构成周期终结仍待确认',
         'ongoing': True,
@@ -97,10 +99,43 @@ def _cache_path(endpoint, params):
     return os.path.join(RAW_DIR, key + '.json')
 
 
+_TS_PRO = [None]
+
+
+def _ts_call(endpoint, params):
+    """Tushare Pro 自定义网关，返回与 datahubco 相同的 {fields, items, has_more}。"""
+    import tushare as ts
+    if _TS_PRO[0] is None:
+        token = os.environ.get('TUSHARE_TOKEN', '').strip()
+        if not token:
+            return None
+        pro = ts.pro_api(token)
+        pro._DataApi__http_url = os.environ.get(
+            'TUSHARE_API_URL', 'http://data.000666.site/dataapi')
+        _TS_PRO[0] = pro
+    fn = {'index-member-all': 'index_member_all', 'stock-basic': 'stock_basic',
+          'daily': 'daily', 'adj-factor': 'adj_factor'}.get(endpoint)
+    if fn is None:
+        return None
+    kw = {k: v for k, v in params.items() if k not in ('limit', 'offset')}
+    df = getattr(_TS_PRO[0], fn)(**kw)
+    time.sleep(0.25)
+    if df is None or len(df) == 0:
+        return {'fields': [], 'items': [], 'has_more': False}
+    df = df.astype(object).where(pd.notna(df), None)
+    return {'fields': list(df.columns), 'items': df.values.tolist(), 'has_more': False}
+
+
 def api_get(endpoint, params, tries=10):
-    fp = _cache_path(endpoint, params)
+    ts_mode = bool(os.environ.get('TUSHARE_TOKEN', '').strip())
+    fp = _cache_path(('ts:' if ts_mode else '') + endpoint, params)
     if os.path.exists(fp):
         return json.load(open(fp))
+    if ts_mode:
+        data = _ts_call(endpoint, params)
+        if data is not None:
+            json.dump(data, open(fp, 'w'))
+            return data
     for attempt in range(tries):
         wait = API_MIN_INTERVAL - (time.time() - _last_call[0])
         if wait > 0:
@@ -329,7 +364,7 @@ def main():
     basic = load_basic()
 
     out = {
-        'asof': '2026-11-13',
+        'asof': ASOF,
         'method': {
             'industry': '申万一级（当前分类回溯），阶段起点成员等权；剔除 ST/退市股；样本少于 %d 只不参与排名' % MIN_INDUSTRY_STOCKS,
             'stock': '沪深A股，复权价；剔除 ST/退市股与阶段内上市新股；仅统计阶段起止均有行情',

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Where are we? · 金融资产周期研究</title>
 <link rel="preload" href="fonts/noto-serif-sc.woff2" as="font" type="font/woff2" crossorigin />
-<link rel="stylesheet" href="style.css?v=20261118h" />
+<link rel="stylesheet" href="style.css?v=20261119q" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 34 34'%3E%3Crect width='34' height='34' rx='7' fill='%230E1F35'/%3E%3Cpath d='M8 24 L14 15 L19 19 L27 9' stroke='%23C2A878' stroke-width='2.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='27' cy='9' r='2.2' fill='%23C2A878'/%3E%3C/svg%3E" />
 </head>
 <body data-view="intro">
@@ -119,7 +119,7 @@
       <div class="card"><div class="idx">01</div><h3>周期定位</h3><p>我们在哪一轮、哪个阶段？用指数走势与牛熊分段，判断当前处于底部、牛市初中后期、顶点还是转熊。</p></div>
       <div class="card"><div class="idx">02</div><h3>驱动及反转</h3><p>是什么在推动？宏观政策、产业趋势、宏大叙事与资金行为如何共振，又因何松动、反转。</p></div>
       <div class="card"><div class="idx">03</div><h3>指标监测</h3><p>用什么验证？估值、成交、融资、集中度、广度与宏观指标，逐项定位当前在历史的分位。</p></div>
-      <div class="card"><div class="idx">04</div><h3>当前映射</h3><p>当下像谁？把当前走势与历史相似时期重合比对，给出历史后续路径作为参照。</p></div>
+      <div class="card"><div class="idx">04</div><h3>当前映射</h3><p>当下处在哪一档？把估值、回撤、广度、套牢、杠杆、资金逐项定位到历史分位，再取历史上同一档位的后续分布作为参照。</p></div>
     </div>
   </section>
 
@@ -155,14 +155,80 @@
       <div class="page-meta" id="dash-asof"></div>
     </div>
 
-    <div class="dash" id="dash"></div>
+    <!-- 1. 综合建议 -->
+    <div class="sec-head">
+      <div>
+        <div class="overline">Recommendation</div>
+        <h2 class="section-title">综合建议</h2>
+      </div>
+      <div class="sec-meta" id="concl-asof">打分卡 + 机器学习</div>
+    </div>
+    <div class="rec" id="conclusion"></div>
 
-    <div class="chart-card">
-      <div class="card-head"><h2>历史相似走势</h2><span class="asof" id="sim-asof"></span></div>
-      <div class="chart-toolbar" id="sim-toolbar"></div>
-      <div class="chart" id="chart-sim" style="height:360px"></div>
-      <div class="sim-block" id="sim-cards"></div>
-      <div class="scenario-block" id="sim-scenario"></div>
+    <!-- 2. 两套系统：左历史统计 / 右机器学习 -->
+    <div class="rec-grid">
+      <section class="rec-panel">
+        <div class="rec-panel-h">
+          <div class="rph-t"><span class="rph-n">A</span>历史统计</div>
+          <div class="rph-s" id="hist-asof"></div>
+        </div>
+        <div class="ml-tabs">
+          <button class="ml-tab on" data-htab="idx">指数 <em>8</em></button>
+          <button class="ml-tab" data-htab="sec">板块 <em>31</em></button>
+        </div>
+        <div class="ml-pane" id="hist-pane-idx" data-hpane="idx"></div>
+        <div class="ml-pane" id="hist-pane-sec" data-hpane="sec" hidden></div>
+        <div class="ml-note" id="hist-note"></div>
+      </section>
+      <section class="rec-panel">
+        <div class="rec-panel-h">
+          <div class="rph-t"><span class="rph-n">B</span>机器学习机制</div>
+          <div class="rph-s" id="ml-asof"></div>
+        </div>
+        <div id="ml-body"></div>
+      </section>
+    </div>
+
+    <!-- 3. 国家队资金流 -->
+    <div class="sec-head">
+      <div>
+        <div class="overline">National Team Flow</div>
+        <h2 class="section-title">国家队资金流</h2>
+      </div>
+      <div class="sec-meta" id="nsf-asof"></div>
+    </div>
+    <div class="chart-card" id="nsf-card">
+      <div class="scope-chips nsf-scope" id="nsf-scope"></div>
+      <div class="chart" id="chart-nsf" style="height:380px"></div>
+      <div class="ss-note" id="nsf-note"></div>
+    </div>
+
+    <!-- 3b. 模型面板 -->
+    <div class="sec-head">
+      <div>
+        <div class="overline">Model Panel</div>
+        <h2 class="section-title">模型面板</h2>
+      </div>
+      <div class="sec-meta" id="mp-asof"></div>
+    </div>
+    <div class="mp-tiles" id="mp-tiles"></div>
+    <div class="mp-grid">
+      <div class="mp-card">
+        <div class="mp-h"><b>横截面排名</b><span>未来 20 日相对强弱</span></div>
+        <div class="chart" id="mp-rank" style="height:250px"></div>
+      </div>
+      <div class="mp-card">
+        <div class="mp-h"><b>熊市生存曲线</b><span>已经走了多久，还剩多久</span></div>
+        <div class="chart" id="mp-surv" style="height:250px"></div>
+      </div>
+      <div class="mp-card">
+        <div class="mp-h"><b>转牛概率</b><span>按已走时间分档，未来 20 日</span></div>
+        <div class="chart" id="mp-trans" style="height:230px"></div>
+      </div>
+      <div class="mp-card">
+        <div class="mp-h"><b>变点强度</b><span>近 250 个交易日</span></div>
+        <div class="chart" id="mp-cp" style="height:230px"></div>
+      </div>
     </div>
 
     <div class="sec-head">
@@ -170,11 +236,9 @@
         <div class="overline">Key Indicators · Historical Position</div>
         <h2 class="section-title">关键指标 · 历史位置</h2>
       </div>
-      <div class="sec-meta">3 项长周期 · 14 项全A</div>
+      <div class="sec-meta">14 项全A</div>
     </div>
-    <div class="ind-sub" id="ind-long-head"><b>长周期 · 上证指数</b><span>指数口径 · 周频</span></div>
-    <div class="ind-grid three" id="ind-long"></div>
-    <div class="ind-sub"><b>全A 结构指标</b><span>2016 起 · 周频</span></div>
+    <div class="ind-sub"><b>全A 结构指标</b><span>2005 起 · 周频</span></div>
     <div class="ind-grid" id="ind-grid"></div>
   </section>
 
@@ -211,10 +275,15 @@
 </div>
 
 <script src="echarts.min.js"></script>
-<script src="data.js?v=20261117a"></script>
-<script src="cycle_stats.js?v=20261117b"></script>
-<script src="cycle_analysis.js?v=20261117a"></script>
-<script src="pullback_stats.js?v=20261117a"></script>
-<script src="app.js?v=20261118h"></script>
+<script src="data.js?v=20261118c"></script>
+<script src="cycle_stats.js?v=20261118a"></script>
+<script src="cycle_analysis.js?v=20261118b"></script>
+<script src="pullback_stats.js?v=20261118b"></script>
+<script src="state_score.js?v=20261119a"></script>
+<script src="ml_model.js?v=20261119c"></script>
+<script src="hist_stats.js?v=20261119b"></script>
+<script src="models_extra.js?v=20261119a"></script>
+<script src="conclusion.js?v=20261119b"></script>
+<script src="app.js?v=20261119r"></script>
 </body>
 </html>

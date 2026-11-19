@@ -6,10 +6,17 @@ import os
 PROJ = "/Users/kunrongcai/Desktop/LLM-AI Agent/Deepseek/Skill研究/ashare-fupan"
 DATA_DIR = "/Users/kunrongcai/Desktop/A股数据"
 SRC_DIR = os.path.join(PROJ, "src")
-CACHE_DIR = os.path.join(PROJ, "cache")
 DASHBOARD_DIR = os.path.join(PROJ, "dashboard")
 
-INDEX_CSV = os.path.join(PROJ, "data_index_daily.csv")
+# ---- 应用数据：本项目的输入与缓存，全部收在「A股数据/应用数据」下 ----
+# 这样所有金融数据只有一个入口，换机器/备份只搬一个文件夹。
+# 数据地图见 A股数据/数据地图.md
+APP_DATA = os.path.join(DATA_DIR, "应用数据")
+CACHE_DIR = os.path.join(APP_DATA, "cache")           # 可重建的中间层
+INDEX_KLINE_DIR = os.path.join(APP_DATA, "index_kline")  # 7 个指数的原始日线 xlsx
+INDEX_CSV = os.path.join(APP_DATA, "index_daily.csv")    # 八大指数收盘价（脚本产出/增量）
+EVENTS_CSV = os.path.join(APP_DATA, "policy_events.csv")  # 人工整理的政策事件
+OVERSEAS_DIR = os.path.join(DATA_DIR, "指数")             # 标普/道指/纳指/恒生 长历史日线
 
 # ADV 中国宏观数据（external，与 financial-charts 共用）
 ADV_MACRO_PATH = "/Users/kunrongcai/Desktop/LLM-AI Agent/Deepseek/Skill研究/financial-charts/js/china-macro.js"
@@ -28,6 +35,7 @@ HK_HOLD_CSV = os.path.join(DATA_DIR, "alt_hk_hold_tushare.csv")        # 港股�
 MONEYFLOW_CSV = os.path.join(DATA_DIR, "alt_moneyflow_tushare.csv")    # 资金流
 ETF_DAILY_CSV = os.path.join(DATA_DIR, "alt_etf_daily.csv")            # ETF日线
 ETF_BASIC_CSV = os.path.join(DATA_DIR, "etf_basic.csv")                # ETF基本信息
+FUND_SHARE_DIR = os.path.join(DATA_DIR, "ml_data", "fund_share")       # 场内基金份额（国家队）
 DC_HOT_CSV = os.path.join(DATA_DIR, "alt_dc_hot.csv")                  # 东财热股榜
 THS_HOT_CSV = os.path.join(DATA_DIR, "alt_ths_hot.csv")                # 同花顺热度
 LIMIT_CPT_CSV = os.path.join(DATA_DIR, "alt_limit_cpt.csv")            # 涨停板（概念口径）

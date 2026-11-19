@@ -265,13 +265,12 @@
     SCOPE.index = i;
     renderScopeBar();
     histIndex = i; histPhase = null; historyFirstRender = true;
-    simIndex = i;
     // 事件时间轴固定不变，仅刷新右侧对照图与阶段统计
     refreshCycleLensIndex(i);
     if (histInit) renderHistory();
     if (document.body.dataset.view === 'history') refreshCycleOverview();
     if (document.body.dataset.view === 'cycle') renderCyclePage(detailCycleId, true);
-    if (curInit) { renderDashboard(); renderSimilarity(simRange); renderLongIndicators(); renderIndicators(); }
+    if (curInit) { renderNsf(); renderLongIndicators(); renderIndicators(); }
     if (macroInit) rebuildMacro();
   }
 
@@ -312,7 +311,7 @@
     if (_klineLoading) return;
     _klineLoading = true;
     var s2 = document.createElement('script');
-    s2.src = 'data-kline.js';
+    s2.src = 'data-kline.js?v=20261118c';
     s2.async = true;
     s2.onload = function () {
       if (window.WAW_KLINE) W.kline = window.WAW_KLINE;
@@ -507,6 +506,11 @@
   });
   window.addEventListener('scroll', function () { closeTbMenus(); }, { passive: true });
   window.addEventListener('resize', function () { closeTbMenus(); });
+  window.addEventListener('resize', function () {
+    ['chart-ml', 'chart-sec'].forEach(function (id) {
+      if (charts[id] && charts[id].getDom() && charts[id].getDom().offsetParent) charts[id].resize();
+    });
+  });
 
   function nearestIdx(dates, ds) {
     if (!dates.length) return 0;
@@ -2398,355 +2402,640 @@
   // ---------- 当前观察 ----------
   const RECENT_WD = { '1m': 20, '3m': 60, '6m': 120 };
   function renderCurrent() {
-    renderDashboard();
-    renderSimilarity('1m');
+    const _pa = document.getElementById('dash-asof');
+    if (_pa) _pa.innerHTML = '<span class="dot"></span>数据截至 <b>' + W.asof + '</b>';
+    renderConclusion();
+    renderNsf();
+    renderHistStats();
+    renderMl();
+    renderModels();
     renderLongIndicators();
     renderIndicators();
   }
-  // ---------- 全A 市场状态：四项指标固定为全A口径，不随基准指数变化 ----------
-  const DASH_KEYS = ['pe', 'margin', 'above200', 'concentration'];
-  const DASH_META = {
-    pe: { name: '估值', metric: '全A PE 中位数', tag: 'PE', raw: v => isNil(v) ? '—' : fmtNum(v, 1) + '×' },
-    margin: { name: '杠杆', metric: '融资余额 / 总市值', raw: v => isNil(v) ? '—' : fmtNum(v, 2) + '%' },
-    above200: { name: '广度', metric: '200MA 上方占比', raw: v => isNil(v) ? '—' : fmtNum(v, 1) + '%' },
-    concentration: { name: '拥挤', metric: '前 5% 成交额占比', raw: v => isNil(v) ? '—' : fmtNum(v, 2) + '%' },
-  };
-  // 指标全样本分位（0–100），按日期索引
-  function pctlMap(key) {
-    const o = W.indicators[key] || {};
-    const vals = (o.values || []).filter(v => v != null && !isNaN(v)).sort((a, b) => a - b);
-    const m = {};
-    (o.dates || []).forEach((d, i) => {
-      const v = o.values[i];
-      if (v == null || isNaN(v) || !vals.length) return;
-      let k = 0; while (k < vals.length && vals[k] <= v) k++;
-      m[d] = k / vals.length * 100;
-    });
-    return m;
-  }
-  function latestOf(key) {
-    const o = W.indicators[key] || {};
-    const vs = o.values || [], ds = o.dates || [];
-    for (let i = vs.length - 1; i >= 0; i--) if (vs[i] != null && !isNaN(vs[i])) return { date: ds[i], value: vs[i] };
-    return null;
-  }
-  // 完整阶段名（不用缩写）；没有细分阶段时退回牛/熊区间
-  function phaseFull(idx, date) {
-    const cy = W.cycles.find(c => date >= c.start && date <= (c.end || W.asof));
-    if (cy) {
-      const cp = (W.cycle_phases && W.cycle_phases[idx]) || {};
-      const ph = (cp[cy.id] || []).find(p => date >= p.start && date <= p.end);
-      if (ph) return { cycleName: cy.name, phaseName: ph.name };
+  // ---------- 综合建议：结论先行，证据折叠，下方两种机制并排 ----------
+  function renderConclusion() {
+    const el = document.getElementById('conclusion');
+    if (!el) return;
+    const C = W.conclusion;
+    if (!C) { el.innerHTML = '<div class="desc">结论未生成，运行 python3 src/build_conclusion.py</div>'; return; }
+    const asofEl = document.getElementById('concl-asof');
+    if (asofEl) asofEl.textContent = '截至 ' + C.asof;
+
+    const S = C.stage, Wn = C.win || {}, R = C.rally || {}, B = C.best;
+    const bulls = (C.indices || []).filter(x => x.kind === 'bull');
+    const pct = v => (v == null ? '—' : v + '%');
+
+    // 1) 牛熊
+    let A = C.n_bear + '/' + C.n_total + ' 个指数已从高点回落 20% 以上，进入熊市';
+    if (bulls.length) {
+      const b = bulls[0];
+      A += '；只有' + b.name + '还没破线 —— 距 ' + b.from_date + ' 的低点仍 ' +
+        fmtSigned(b.chg, 0, '%') + '，但已从高点回撤 ' + fmtSigned(b.dd250, 1, '%') +
+        '，属于牛市中的深度回调';
     }
-    const segs = (W.index_cycles && W.index_cycles[idx]) || [];
-    const sg = segs.find(s => date >= s[1] && date <= s[2]);
-    return { cycleName: null, phaseName: sg ? (sg[0] === 'bull' ? '牛市区间' : '熊市区间') : null };
+    // 2) 阶段
+    const Bt = '熊市' + S.label + ' —— 时间走完 <b>' + pct(S.time_pct) + '</b>（历史上 ' +
+      pct(S.time_pct) + ' 的熊市比这次更短），空间走完 <b>' + pct(S.space_pct) +
+      '</b>（' + pct(S.space_pct) + ' 的熊市跌得比这次更浅）';
+    // 3) 胜率
+    const Ct = '30 日 <b>' + pct(Wn.w30) + '</b> / 60 日 <b>' + pct(Wn.w60) +
+      '</b>（' + (C.picks || []).length + ' 个指数按独立片段加权）；分指数从 ' +
+      pct(Wn.lo30) + ' 到 ' + pct(Wn.hi30) + '，只有 ' + (B ? B.name : '—') + ' 明显高过一半';
+    // 4) 推荐
+    let D = B ? ('<b>' + B.name + '</b>：同档 30 日胜率 ' + pct(B.w30) + '、中位 ' +
+      fmtSigned(B.m30, 1, '%') + '；但只有 ' + B.s30 + ' 段独立样本，误差约 ±18pp。' +
+      '求稳选沪深300（51%，23 段）') : '样本不足';
+    // 5) 熊市规律：本轮谁跌得最深 + 历史上"跌得深＝弹得快"是否成立
+    const bears = (C.indices || []).filter(x => x.kind === 'bear').sort((a, b) => a.chg - b.chg);
+    let E = '';
+    if (bears.length) {
+      E += '本轮跌得最深的是 <b>' + bears[0].name + ' ' + fmtSigned(bears[0].chg, 1, '%') + '</b>' +
+        (bears[1] ? '，其次是' + bears[1].name + ' ' + fmtSigned(bears[1].chg, 1, '%') : '') + '；';
+    }
+    E += '历史上 ' + C.bear_n + ' 轮熊市里，跌得最深的只有 <b>' + C.bear_hit +
+      '</b> 轮反弹最强（排名相关 ' + fmtNum(C.bear_rho, 2) + '）——"跌得多就弹得快"不成立，' +
+      '别把跌幅当反弹的领先指标';
+    // 6) 反弹定义
+    const F = '业内没有统一标准，常用的口径是 <b>≥10% 且持续 ≥2 周</b>；' +
+      '<b>≥20%</b> 按本页定义已经算熊转牛，不再叫反弹。本地 ' + R.n +
+      ' 次熊市反弹里，≥10% 的只占 ' + pct(R.share10) + '（中位 ' + R.med_gain + '% / ' + R.med_days + ' 日）';
+
+    const M = C.mix;
+    const HEAD = { '可分批买入': '分批建仓', '可小仓位试探': '轻仓试探', '等待，暂不加仓': '观望' };
+    const head = HEAD[C.stance] || C.stance;
+
+    let ledger = '';
+    if (M) {
+      const agree = M.agree;
+      ledger = '规则打分 <b>' + fmtNum(M.rule, 0) + '</b>，模型给出 <b>' + fmtNum(M.ml, 0) +
+        '%</b> 的未来 60 日上涨概率，' +
+        (agree ? '方向一致' : '两者分歧，按保守的一方执行') + '。' +
+        (M.combined >= 60 ? '合成分 <b>' + fmtNum(M.combined, 0) + '</b>，可以分批，但不宜一次打满。'
+          : M.combined >= 52 ? '合成分 <b>' + fmtNum(M.combined, 0) + '</b>，先小仓位试。'
+            : '合成分 <b>' + fmtNum(M.combined, 0) + '</b>，还不到建仓线。');
+    } else {
+      ledger = '模型未生成，以下仅为打分卡结论。';
+    }
+
+    const stats = [
+      ['合成分', M ? fmtNum(M.combined, 0) : '—', M ? '<small>/100</small>' : ''],
+      ['打分卡', M ? fmtNum(M.rule, 0) : (B ? fmtNum(B.a60, 0) : '—'), '<small>/100</small>'],
+      ['模型', M ? fmtNum(M.ml, 0) : '—', '<small>%</small>'],
+      ['置信度', M ? M.confidence : '—', ''],
+    ].map(s => '<div class="rec-stat"><span>' + s[0] + '</span><b>' + s[1] + s[2] + '</b></div>').join('');
+
+    // ---- 板块建议：技术/基本面/情绪/同形态胜率/模型排名 的等权合成
+    let secHtml = '';
+    const secs = (W.hist_stats && W.hist_stats.sectors) || [];
+    if (secs.length) {
+      const rkS = {};
+      const rrS = ((W.models_extra && W.models_extra.rank) || {}).sectors || [];
+      rrS.forEach(function (x) { rkS[x.name] = x.score; });
+      const scored = secs.map(function (x) {
+        const w = (x.win || {}).d60 || {};
+        const parts = [x.tech, x.fund, x.sent, w.ok ? w.win : null, rkS[x.name]];
+        const vals = parts.filter(function (v) { return v != null; });
+        return { name: x.name, score: vals.length ? vals.reduce(function (a, b) { return a + b; }, 0) / vals.length : null,
+          w: w.ok ? w.win : null, seg: w.seg, tendency: x.tendency };
+      }).filter(function (x) { return x.score != null && x.w != null && x.seg >= 8 && x.tendency === '偏买入'; })
+        .sort(function (a, b) { return b.score - a.score; });
+      if (scored.length) {
+        const nBuy = secs.filter(function (x) { return x.tendency === '偏买入'; }).length;
+        const top = scored.slice(0, 4).map(function (x) {
+          return '<span class="rs-item" title="合成分 ' + fmtNum(x.score, 1) +
+            ' · 同形态 60 日胜率 ' + fmtNum(x.w, 0) + '%（' + x.seg + ' 段）">' +
+            '<b>' + x.name + '</b><em>' + fmtNum(x.score, 0) + '</em></span>';
+        }).join('');
+        secHtml = '<div class="rec-sectors"><span class="ev-k">板块</span>' + top +
+          '<span class="rs-meta">' + nBuy + '/' + secs.length + ' 个板块偏买入 · 分数为技术/基本面/情绪/胜率/模型排名等权</span></div>';
+      }
+    }
+
+    el.innerHTML =
+      '<div class="rec-stance ' + (C.tone || 'neutral') + '">' + head + '</div>' +
+      '<div class="rec-sub">熊市' + S.label +
+      '<span class="dim"> · </span>' + C.n_bear + '/' + C.n_total + ' 指数处于熊市' +
+      '<span class="dim"> · </span>首选 <b>' + (B ? B.name : '—') + '</b>' +
+      '<span class="dim"> · </span>未来 30–60 个交易日</div>' +
+      '<div class="rec-stats">' + stats + '</div>' +
+      '<div class="rec-line">' + ledger + '</div>' +
+      secHtml;
   }
-  function renderDashboard() {
-    const el = document.getElementById('dash'); if (!el) return;
 
-    // 基准指数状态：本块唯一随基准变化的内容
-    const segs = W.index_cycles[SCOPE.index] || [];
-    const seg = segs[segs.length - 1];
-    const regime = seg ? (seg[0] === 'bull' ? '牛市' : '熊市') : '—';
-    const curPhase = phaseFull('上证指数', W.asof);
-
-    const maps = {}, rawMaps = {}, latest = {}, cur = {};
-    DASH_KEYS.forEach(k => {
-      maps[k] = pctlMap(k);
-      const o = W.indicators[k] || {};
-      const rm = {};
-      (o.dates || []).forEach((d, i) => { if (o.values[i] != null && !isNaN(o.values[i])) rm[d] = o.values[i]; });
-      rawMaps[k] = rm;
-      latest[k] = latestOf(k);
-      cur[k] = latest[k] ? maps[k][latest[k].date] : null;
+  // ---------- 历史统计：技术 / 基本面 / 情绪 三维打分 ----------
+  function hsScore(v) {
+    if (v == null) return '<td class="hs-num none">—</td>';
+    return '<td class="hs-num"><i class="hs-bar"><b style="width:' + v + '%"></b></i>' +
+      '<em>' + v + '</em></td>';
+  }
+  function hsWin(d) {
+    if (!d || !d.ok) return '<td class="hs-win none">' + (d && d.n ? 'n=' + d.n : '—') + '</td>';
+    return '<td class="hs-win"><b class="' + (d.win >= 50 ? 'up' : 'down') + '">' +
+      fmtNum(d.win, 0) + '%</b><span>' + d.seg + '段</span></td>';
+  }
+  function hsDim(title, obj) {
+    const keys = Object.keys(obj || {});
+    if (!keys.length) return '';
+    const items = keys.map(function (k) {
+      const d = obj[k];
+      if (!d || d.s == null) {
+        return '<div class="hs-item none"><span>' + k + '</span><em>—</em><b>—</b></div>';
+      }
+      const raw = (d.v == null) ? '' :
+        (d.u === '%' ? fmtSigned(d.v, 1, '%') : fmtNum(d.v, 1) + (d.u || ''));
+      return '<div class="hs-item"><span>' + k + '</span><em>' + raw + '</em>' +
+        '<b>' + d.s + '</b><i class="hs-bar"><b style="width:' + d.s + '%"></b></i></div>';
+    }).join('');
+    return '<div class="hs-dim"><h4>' + title + '</h4>' + items + '</div>';
+  }
+  function hsTable(rows, key) {
+    if (!rows || !rows.length) return '<div class="desc">无数据</div>';
+    const rk = {};
+    const rr = (W.models_extra && W.models_extra.rank) || {};
+    ((key === 'idx' ? rr.indices : rr.sectors) || []).forEach(function (x) { rk[x.name] = x.score; });
+    let h = '<table class="hs-tbl"><thead><tr><th>资产</th><th>阶段</th><th>技术</th>' +
+      '<th>基本面</th><th>情绪</th><th>5日</th><th>60日</th><th>模型</th><th>倾向</th></tr></thead><tbody>';
+    rows.forEach(function (x, i) {
+      const k = (x.kind === 'bear') ? '熊' : '牛';
+      const tn = x.tendency === '偏买入' ? ' buy' : (x.tendency === '偏减仓' ? ' sell' : '');
+      h += '<tr class="hs-row" data-det="hs-d-' + key + '-' + i + '">' +
+        '<td class="hs-name"><b>' + x.name + '</b>' +
+        (x.desc ? '<span>' + x.desc + '</span>' : '') + '</td>' +
+        '<td class="hs-stage"><span class="' + (x.kind === 'bear' ? 'down' : 'up') + '">' + k + '</span></td>' +
+        hsScore(x.tech) + hsScore(x.fund) + hsScore(x.sent) +
+        hsWin(x.win && x.win.d5) + hsWin(x.win && x.win.d60) +
+        '<td class="hs-rank' + (rk[x.name] >= 70 ? ' hi' : (rk[x.name] != null && rk[x.name] <= 30 ? ' lo' : '')) + '">' +
+        (rk[x.name] == null ? '—' : fmtNum(rk[x.name], 0)) + '</td>' +
+        '<td class="hs-tend' + tn + '">' + x.tendency + '<i class="hs-caret">▾</i></td></tr>' +
+        '<tr class="hs-det" id="hs-d-' + key + '-' + i + '" hidden><td colspan="9">' +
+        '<div class="hs-det-in">' + hsDim('技术', x.tech_items) +
+        hsDim('基本面', x.fund_items) + hsDim('情绪', x.sent_items) + '</div></td></tr>';
     });
+    return h + '</tbody></table>';
+  }
+  function renderHistStats() {
+    const H = W.hist_stats;
+    const idxEl = document.getElementById('hist-pane-idx');
+    const secEl = document.getElementById('hist-pane-sec');
+    if (!idxEl || !secEl) return;
+    if (!H) {
+      idxEl.innerHTML = '<div class="desc">历史统计未生成，运行 python3 src/build_hist_stats.py</div>';
+      return;
+    }
+    const ae = document.getElementById('hist-asof');
+    if (ae) ae.textContent = '截至 ' + H.asof;
+    idxEl.innerHTML = hsTable(H.indices, 'idx');
+    secEl.innerHTML = hsTable(H.sectors, 'sec');
 
-    // 当前值与数据截至（各指标日期可能相差一天，统一取最新）
-    const dts = DASH_KEYS.map(k => latest[k] ? latest[k].date : '').filter(Boolean).sort();
-    const asof = dts.length ? dts[dts.length - 1] : '';
-    const lag = DASH_KEYS.filter(k => latest[k] && latest[k].date !== asof)
-      .map(k => DASH_META[k].name + ' ' + latest[k].date).join(' · ');
-    const asofEl = document.getElementById('dash-asof');
-    if (asofEl) asofEl.innerHTML = '<span class="dot"></span><span>数据截至 <b>' + (asof || '—') + '</b></span>' +
-      (lag ? '<span class="lag">' + lag + '</span>' : '');
-
-    // 牛熊均值：全A指标分位按上证指数牛熊分段统计
-    const mSegs = W.index_cycles['上证指数'] || [];
-    const sums = { bull: {}, bear: {} }, rawSums = { bull: {}, bear: {} }, cnt = { bull: 0, bear: 0 };
-    const common = ((W.indicators.above200 || {}).dates || []).filter(d => DASH_KEYS.every(k => maps[k][d] != null));
-    common.forEach(d => {
-      const sg = mSegs.find(s => d >= s[1] && d <= s[2]);
-      if (!sg) return;
-      cnt[sg[0]]++;
-      DASH_KEYS.forEach(k => {
-        sums[sg[0]][k] = (sums[sg[0]][k] || 0) + maps[k][d];
-        rawSums[sg[0]][k] = (rawSums[sg[0]][k] || 0) + rawMaps[k][d];
+    const tabs = document.querySelectorAll('.ml-tab[data-htab]');
+    if (tabs.length >= 2) {
+      tabs[0].querySelector('em').textContent = H.indices.length;
+      tabs[1].querySelector('em').textContent = H.sectors.length;
+    }
+    const note = document.getElementById('hist-note');
+    if (note) {
+      note.innerHTML = '分数 0–100，越高越极端：技术 9 项（回撤/距低点/250日位置/MA250偏离/60日动量/RSI/量比/量价相关/MACD），' +
+        '基本面 8 项（PE/PB/ROE/营收增速/毛利率/负债率/每股现金流/股息率），情绪 3–5 项（换手/成交占比/两融与市场情绪）。' +
+        '三维并列、不合成总分；点任意一行展开明细。胜率＝在 10 个特征的分位空间里取历史最相似的 30 个交易日，' +
+        '括号内为独立熊市段数。';
+    }
+    document.querySelectorAll('.hs-row').forEach(function (tr) {
+      tr.addEventListener('click', function () {
+        const d = document.getElementById(tr.dataset.det);
+        if (!d) return;
+        d.hidden = !d.hidden;
+        tr.classList.toggle('open', !d.hidden);
       });
     });
-    const mean = (t, k) => cnt[t] ? sums[t][k] / cnt[t] : null;
-    const rawMean = (t, k) => cnt[t] ? rawSums[t][k] / cnt[t] : null;
-
-    // 历史相似阶段：四项分位向量最近邻，剔除本轮（>= 2024-02-05）
-    const scored = [];
-    common.forEach(d => {
-      if (d >= '2024-02-05') return;
-      const ph = phaseFull('上证指数', d);
-      if (!ph || !ph.phaseName) return;
-      let diff = 0;
-      DASH_KEYS.forEach(k => { diff += Math.abs(maps[k][d] - cur[k]); });
-      scored.push({ date: d, sim: 100 - diff / DASH_KEYS.length, ph: ph });
+    tabs.forEach(function (b) {
+      if (b.dataset.bound) return;
+      b.dataset.bound = '1';
+      b.addEventListener('click', function () {
+        tabs.forEach(function (x) { x.classList.toggle('on', x === b); });
+        document.querySelectorAll('[data-hpane]').forEach(function (p) {
+          p.hidden = (p.dataset.hpane !== b.dataset.htab);
+        });
+      });
     });
-    scored.sort((a, b) => b.sim - a.sim);
-    const matches = [];
-    for (let i = 0; i < scored.length && matches.length < 3; i++) {
-      if (matches.every(m => Math.abs(ts(scored[i].date) - ts(m.date)) > 182 * 86400000)) matches.push(scored[i]);
-    }
-    // 近邻 10% 的阶段分布
-    const bandN = Math.min(scored.length, Math.max(10, Math.round(scored.length * 0.1)));
-    const tally = {};
-    scored.slice(0, bandN).forEach(r => { tally[r.ph.phaseName] = (tally[r.ph.phaseName] || 0) + 1; });
-    const dist = Object.keys(tally).sort((a, b) => tally[b] - tally[a]);
-    const distTxt = dist.slice(0, 2).map(n => n + ' ' + Math.round(tally[n] / bandN * 100) + '%').join(' · ');
-
-    const pos = v => isNil(v) ? 0 : Math.max(0, Math.min(100, v));
-    let html = '<div class="dash-head">' +
-      '<div class="dash-title-wrap"><div class="dash-title">全A 市场状态</div>' +
-      '<div class="dash-meta">全A 口径 · 2016-11 起 · 牛熊按上证分段</div></div>' +
-      '<div class="dash-regime"><span class="dash-badge">基准 ' + SCOPE.index + ' · ' + regime + '</span>' +
-      '<span class="dash-note">上证阶段 · ' + (curPhase && curPhase.cycleName ? curPhase.cycleName + ' · ' : '') +
-      (curPhase && curPhase.phaseName ? curPhase.phaseName : '—') + '</span></div></div>';
-
-    html += '<div class="dash-body"><div class="cmp-wrap">' +
-      '<div class="cmp-row head"><div class="cmp-name">指标</div><div class="cmp-v">当前分位</div>' +
-      '<div class="cmp-v">牛市均值</div><div class="cmp-v">熊市均值</div><div class="cmp-track-h">0–100</div></div>';
-    html += DASH_KEYS.map(k => {
-      const meta = DASH_META[k];
-      const cp = cur[k], bp = mean('bull', k), sp = mean('bear', k), lt = latest[k];
-      const tip = meta.metric + '：当前 ' + meta.raw(lt ? lt.value : null) + '（' + fmtNum(cp, 0) + '% 分位）' +
-        ' · 牛市均值 ' + meta.raw(rawMean('bull', k)) + '（' + fmtNum(bp, 0) + '%）' +
-        ' · 熊市均值 ' + meta.raw(rawMean('bear', k)) + '（' + fmtNum(sp, 0) + '%）';
-      return '<div class="cmp-row">' +
-        '<div class="cmp-name" title="' + tip + '"><b>' + meta.name + '</b><span>' +
-        (meta.tag ? meta.tag + ' ' : '') + meta.raw(lt ? lt.value : null) + '</span></div>' +
-        '<div class="cmp-v cur"><b>' + fmtNum(cp, 0) + '%</b></div>' +
-        '<div class="cmp-v bull"><b>' + fmtNum(bp, 0) + '%</b></div>' +
-        '<div class="cmp-v bear"><b>' + fmtNum(sp, 0) + '%</b></div>' +
-        '<div class="cmp-track" title="' + tip + '">' +
-        '<i class="cmp-base"></i>' +
-        '<i class="cmp-mark bull" style="left:' + pos(bp) + '%"></i>' +
-        '<i class="cmp-mark bear" style="left:' + pos(sp) + '%"></i>' +
-        '<i class="cmp-mark cur" style="left:' + pos(cp) + '%"></i>' +
-        '</div></div>';
-    }).join('');
-    html += '<div class="cmp-legend"><span><i class="lg cur"></i>当前</span>' +
-      '<span><i class="lg bull"></i>牛市均值</span><span><i class="lg bear"></i>熊市均值</span></div>';
-    html += '</div>';
-
-    html += '<div class="match-wrap"><div class="match-head"><span class="match-title">历史相似阶段</span>' +
-      '<span class="match-hint">剔除本轮</span></div>' +
-      '<div class="match-row head"><span>日期</span><span>周期 · 阶段</span><span>相似</span></div>';
-    html += matches.map(r => {
-      return '<div class="match-row">' +
-        '<span class="match-d">' + r.date + '</span>' +
-        '<span class="match-p">' + (r.ph.cycleName ? r.ph.cycleName + ' · ' : '') + r.ph.phaseName + '</span>' +
-        '<span class="match-s" title="100 − 四项指标平均分位差">' + fmtNum(r.sim, 0) + '</span>' +
-        '</div>';
-    }).join('');
-    if (distTxt) {
-      const topZone = /转熊|后期|顶点/.test(dist[0]);
-      html += '<div class="match-concl">相似样本 <b>' + distTxt + '</b> → ' +
-        (topZone ? '顶部转折区' : dist[0] + '阶段') + '</div>';
-    }
-    html += '</div></div>';
-
-    el.innerHTML = html;
-  }
-  function pctFromBase(arr) {
-    const base = arr.find(v => v != null);
-    if (!base) return arr.map(() => null);
-    return arr.map(v => v == null ? null : Math.round((v / base - 1) * 10000) / 100);
-  }
-  function lastOf(arr) { for (let i = arr.length - 1; i >= 0; i--) if (arr[i] != null) return arr[i]; return null; }
-  let simIndex = SCOPE.index;
-  let simRange = '1m';
-  function renderSimilarityToolbar() {
-    const tb = document.getElementById('sim-toolbar');
-    if (!tb) return;
-    tb.innerHTML = '<div class="seg" data-simwd>' + [['1m', '近1月'], ['3m', '近3月'], ['6m', '近6月']].map(x => '<button data-wd="' + x[0] + '"' + (x[0] === simRange ? ' class="active"' : '') + '>' + x[1] + '</button>').join('') + '</div>';
-    $$('[data-wd]', tb).forEach(b => b.addEventListener('click', function () { simRange = b.dataset.wd; renderSimilarity(simRange); }));
   }
 
-  // 前端计算相似度：用 K 线收盘，末 wd 日 vs 历史同长窗口，后 fwd 日收益从窗口末起算
-  function computeSimilarity(idx, wd, fwd, topK) {
-    const k = W.kline[idx];
-    if (!k) return [];
-    const closes = k.close, dates = k.dates, n = closes.length;
-    if (n < wd + fwd + 5) return [];
-    const curWin = closes.slice(n - wd);
-    const bc = curWin[0] || 1;
-    const curN = curWin.map(v => v / bc);
-    const cm = curN.reduce((a, b) => a + b, 0) / wd;
-    const cd = curN.map(v => v - cm);
-    const cn = Math.sqrt(cd.reduce((a, b) => a + b * b, 0));
-    if (!cn) return [];
-    const res = [];
-    // 与页面 2005 年起的复盘口径一致，不拿 2005 年前的样本做相似期
-    const _y05 = dates.findIndex(d => d >= '2005-01-01');
-    const _iMin = (_y05 >= 0 ? _y05 : 0) + wd;
-    for (let i = _iMin; i <= n - fwd - 1; i++) {
-      const win = closes.slice(i - wd, i);
-      if (win.some(v => v == null)) continue;
-      const b = win[0] || 1;
-      const wn = win.map(v => v / b);
-      const m = wn.reduce((a, b2) => a + b2, 0) / wd;
-      const d = wn.map(v => v - m);
-      const dn = Math.sqrt(d.reduce((a, b2) => a + b2 * b2, 0));
-      if (!dn) continue;
-      const corr = d.reduce((a, b2, j) => a + b2 * cd[j], 0) / (dn * cn);
-      const endDate = dates[i - 1], endVal = closes[i - 1];
-      const fwdVal = closes[Math.min(n - 1, i - 1 + fwd)];
-      res.push({ endDate: endDate, corr: corr, fut30: (fwdVal / endVal - 1) * 100, iStart: i - wd, iEnd: i - 1 });
+  // ---------- 机器学习机制：分位扇形 + 上行概率 ----------
+  function renderMl() {
+    const el = document.getElementById('ml-body');
+    if (!el) return;
+    const M = W.ml_model;
+    if (!M || !M.pred) {
+      el.innerHTML = '<div class="desc">模型未生成，运行 python3 src/build_ml_model.py</div>';
+      return;
     }
-    res.sort((a, b) => b.corr - a.corr);
-    const picked = [];
-    for (const r of res) {
-      if (picked.every(pp => Math.abs(new Date(r.endDate) - new Date(pp.endDate)) > wd * 86400000 * 0.6)) picked.push(r);
-      if (picked.length >= topK) break;
+    const ae = document.getElementById('ml-asof');
+    if (ae) ae.textContent = '截至 ' + M.asof;
+    const p = M.pred['60'];
+    const cells = [
+      ['中位', fmtSigned(p.p50, 1, '%')],
+      ['下行 p10', fmtSigned(p.p10, 1, '%')],
+      ['上行 p90', fmtSigned(p.p90, 1, '%')],
+    ].map(c => '<div class="ml-cell"><span>' + c[0] + '</span><b>' + c[1] + '</b></div>').join('');
+    el.innerHTML =
+      '<div class="ml-top">' +
+      '<div class="ml-big"><b>' + fmtNum(p.pup, 0) + '%</b><span>未来 60 日上涨概率</span></div>' +
+      '<div class="ml-cells">' + cells + '</div></div>' +
+      '<div class="chart" id="chart-ml" style="height:252px"></div>';
+
+    // 分指数 / 分板块：模型当前给出的 60 日分布
+    const idx = Object.keys(M.all_preds || {}).map(k => ({ name: k, p: M.all_preds[k]['60'] }))
+      .sort((a, b) => b.p.pup - a.p.pup);
+    const sec = (M.sectors || []).slice();
+    const cell3 = r => '<div class="ml-row"><b>' + r.name + '</b>' +
+      '<span>' + fmtNum(r.p.pup, 0) + '%</span>' +
+      '<span class="' + (r.p.p50 >= 0 ? 'up' : 'down') + '">' + fmtSigned(r.p.p50, 1, '%') + '</span></div>';
+    const cell4 = r => '<div class="ml-row four"><b>' + r.name + '</b>' +
+      '<span>' + fmtSigned(r.dd, 1, '%') + '</span>' +
+      '<span>' + fmtNum(r.pup, 0) + '%</span>' +
+      '<span class="' + (r.p50 >= 0 ? 'up' : 'down') + '">' + fmtSigned(r.p50, 1, '%') + '</span></div>';
+
+    if (idx.length || sec.length) {
+      el.innerHTML +=
+        '<div class="ml-tabs">' +
+        '<button class="ml-tab on" data-mlt="idx">指数 <em>' + idx.length + '</em></button>' +
+        '<button class="ml-tab" data-mlt="sec">板块 <em>' + sec.length + '</em></button>' +
+        '</div>' +
+        '<div class="ml-pane" id="ml-pane-idx" data-pane="idx"><div class="ml-tbl">' +
+        '<div class="ml-row ml-head"><span>指数</span><span>上行概率</span><span>60 日中位</span></div>' +
+        idx.map(cell3).join('') + '</div></div>' +
+        '<div class="ml-secwrap" data-pane="sec" hidden>' +
+        '<div class="chart" id="chart-sec" style="height:232px"></div>' +
+        '<div class="ml-scap" id="ml-scap"></div>' +
+        '<div class="ml-pane"><div class="ml-tbl">' +
+        '<div class="ml-row ml-head four"><span>板块</span><span>回撤</span><span>上行概率</span><span>60 日中位</span></div>' +
+        sec.map(cell4).join('') + '</div></div></div>' +
+        '<div class="ml-note" data-pane="sec" hidden>申万一级行业，只列当前处于熊市的板块。模型训练时没用过板块数据，这里是真正的样本外迁移。</div>';
+      el.querySelectorAll('.ml-tab').forEach(b => b.addEventListener('click', () => {
+        el.querySelectorAll('.ml-tab').forEach(x => x.classList.toggle('on', x === b));
+        el.querySelectorAll('[data-pane]').forEach(p => { p.hidden = (p.dataset.pane !== b.dataset.mlt); });
+        if (b.dataset.mlt === 'sec') renderSectorChart();
+      }));
     }
-    return picked;
+    renderMlChart();
   }
 
-  const FWD = 30;
-  function phaseOfDate(idx, date) {
-    const segs = (W.index_cycles && W.index_cycles[idx]) || [];
-    const seg = segs.find(sg => date >= sg[1] && date <= sg[2]);
-    if (!seg) return null;
-    const type = seg[0] === 'bull' ? '牛市' : '熊市';
-    const cy = W.cycles.find(c => date >= c.start && date <= (c.end || W.asof));
-    let phaseName = null, fullName = null;
-    if (cy) {
-      const cp = (W.cycle_phases && W.cycle_phases[idx]) || {};
-      const ph = (cp[cy.id] || []).find(pp => date >= pp.start && date <= pp.end);
-      if (ph) { phaseName = PHASE_SHORT[ph.name] || ph.name; fullName = ph.name; }
-    }
-    return { type, cycleName: cy ? cy.name : null, phaseName, fullName, segStart: seg[1], segEnd: seg[2] };
-  }
-
-  function renderSimilarity(range) {
-    simRange = range || simRange;
-    const wd = (simRange === '3m') ? 60 : (simRange === '6m' ? 120 : 22);
-    renderSimilarityToolbar();
-    const idx = simIndex;
-    const k = W.kline[idx];
-    if (!k) return;
-    const closes = k.close, n = closes.length;
-    const matches = computeSimilarity(idx, wd, FWD, 3);
-    const simAsof = document.getElementById('sim-asof');
-    if (simAsof) simAsof.textContent = idx + ' · 截至 ' + k.dates[k.dates.length - 1];
-    const total = wd + FWD;
-    const xLabels = []; for (let i = 1; i <= total; i++) xLabels.push(i + '日');
-    const chartW = (document.getElementById('chart-sim') || {}).clientWidth || 900;
-    const labelStep = Math.max(1, Math.ceil(total / Math.max(6, Math.min(12, Math.floor(chartW / 80)))));
-    const colors = ['#4A6FA5', '#7D3C98', '#B07A3E'];
-    // 当前走势：归一化到 0% 的折线（前 wd 日）
-    const curC = closes.slice(n - wd);
-    const baseC = curC[0] || 1;
-    const curPct = curC.map(v => (v / baseC - 1) * 100);
-    const curSeries = curPct.concat(new Array(FWD).fill(null));
-    // 历史线 + 阶段标注
-    const histSeries = [], histMeta = [];
-    matches.forEach((m, i) => {
-      const win = closes.slice(m.iStart, m.iEnd + 1);
-      const b = win[0] || 1;
-      const wp = win.map(v => (v / b - 1) * 100);
-      const fw = closes.slice(m.iEnd + 1, m.iEnd + 1 + FWD).map(v => (v / b - 1) * 100);
-      const data = wp.concat(fw); while (data.length < total) data.push(null);
-      const ph = phaseOfDate(idx, m.endDate);
-      histMeta.push({ m, ph });
-      histSeries.push({ name: m.endDate, type: 'line', data: data.slice(0, total), smooth: true, showSymbol: false, z: 3, lineStyle: { color: colors[i % colors.length], width: 1.7, type: 'dashed' }, itemStyle: { color: colors[i % colors.length] } });
+  function renderMlChart() {
+    const el = document.getElementById('chart-ml');
+    const M = W.ml_model;
+    if (!el || !M || !M.fan || M.fan.length < 2) return;
+    const fan = M.fan;
+    const xs = fan.map(f => (f.d === 0 ? '今天' : f.d + '日'));
+    const p10 = fan.map(f => f.p10), p25 = fan.map(f => f.p25), p50 = fan.map(f => f.p50),
+      p75 = fan.map(f => f.p75), p90 = fan.map(f => f.p90);
+    const b90 = p90.map((v, i) => +(v - p10[i]).toFixed(2));
+    const b50 = p75.map((v, i) => +(v - p25[i]).toFixed(2));
+    const GOLD = '#A8875B';
+    const ymin = Math.floor(Math.min.apply(null, p10) / 10) * 10 - 5;
+    const ymax = Math.ceil(Math.max.apply(null, p90) / 10) * 10 + 5;
+    const bandPoly = (api, lo, hi) => {
+      const top = [], bot = [];
+      for (let i = 0; i < fan.length; i++) {
+        top.push(api.coord([xs[i], hi[i]]));
+        bot.push(api.coord([xs[i], lo[i]]));
+      }
+      return { type: 'polygon', shape: { points: top.concat(bot.reverse()) }, style: api.style() };
+    };
+    if (charts['chart-ml']) charts['chart-ml'].dispose();
+    const ch = echarts.init(el);
+    charts['chart-ml'] = ch;
+    ch.setOption({
+      animation: false,
+      grid: { left: 4, right: 12, top: 16, bottom: 2, containLabel: true },
+      tooltip: {
+        trigger: 'axis',
+        backgroundColor: '#fff', borderColor: '#E6E1D6', borderWidth: 1,
+        padding: [9, 12], textStyle: { color: '#141313', fontSize: 12.5 },
+        formatter: ps => {
+          const i = ps[0].dataIndex, f = fan[i];
+          if (i === 0) return '<b>今天</b>';
+          return '<b>' + f.d + ' 个交易日后</b><br>' +
+            '中位 <b>' + fmtSigned(f.p50, 1, '%') + '</b><br>' +
+            'p25–p75 ' + fmtSigned(f.p25, 1, '%') + ' ~ ' + fmtSigned(f.p75, 1, '%') + '<br>' +
+            'p10–p90 ' + fmtSigned(f.p10, 1, '%') + ' ~ ' + fmtSigned(f.p90, 1, '%');
+        }
+      },
+      xAxis: {
+        type: 'category', data: xs, boundaryGap: false,
+        axisLine: { lineStyle: { color: '#E6E1D6' } }, axisTick: { show: false },
+        axisLabel: { color: '#8A8578', fontSize: 11.5 }
+      },
+      yAxis: {
+        type: 'value', min: ymin, max: ymax,
+        axisLabel: { color: '#8A8578', fontSize: 11.5, formatter: '{value}%' },
+        splitLine: { lineStyle: { color: '#EFEBE2' } }, axisLine: { show: false }
+      },
+      series: [
+        {
+          type: 'custom', silent: true, z: 1,
+          data: fan.map((_, i) => i),
+          renderItem: (params, api) => bandPoly(api, p10, p90),
+          itemStyle: { color: 'rgba(168,135,91,0.045)' }
+        },
+        {
+          type: 'custom', silent: true, z: 2,
+          data: fan.map((_, i) => i),
+          renderItem: (params, api) => bandPoly(api, p25, p75),
+          itemStyle: { color: 'rgba(168,135,91,0.085)' }
+        },
+        {
+          name: 'p10', type: 'line', data: p10, symbol: 'none', silent: true, z: 2,
+          lineStyle: { color: 'rgba(168,135,91,0.45)', width: 1, type: 'dashed' }
+        },
+        {
+          name: 'p90', type: 'line', data: p90, symbol: 'none', silent: true, z: 2,
+          lineStyle: { color: 'rgba(168,135,91,0.45)', width: 1, type: 'dashed' }
+        },
+        {
+          name: '中位', type: 'line', data: p50, symbol: 'circle', symbolSize: 5,
+          lineStyle: { color: '#0E1F35', width: 2 }, itemStyle: { color: '#0E1F35' }, z: 3,
+          markLine: {
+            silent: true, symbol: 'none',
+            lineStyle: { color: '#B9B3A6', type: 'dashed', width: 1 },
+            label: { show: false }, data: [{ yAxis: 0 }]
+          }
+        }
+      ]
     });
-    // 历史样本后30日中位路径
-    const medData = new Array(total).fill(null);
-    for (let k = 0; k < FWD; k++) {
-      const dd = wd + k;
-      const vals = histSeries.map(h => h.data[dd]).filter(v => v != null);
-      if (vals.length) { vals.sort((a, b) => a - b); medData[dd] = Math.round(vals[Math.floor(vals.length / 2)] * 100) / 100; }
+  }
+
+
+  // ---------- 板块散点：回撤 vs 模型上行概率 ----------
+  function renderSectorChart() {
+    const el = document.getElementById('chart-sec');
+    const M = W.ml_model;
+    if (!el || !M || !M.sectors || !M.sectors.length) return;
+    const pts = M.sectors;
+    const sorted = pts.slice().sort((a, b) => b.pup - a.pup);
+    const labelled = {};
+    const labPts = sorted.slice(0, 3).concat(sorted.slice(-3));
+    labPts.forEach(x => { labelled[x.name] = 1; });
+    // 标签相近时手动错位，避免两个名称叠在一起
+    const off = {};
+    for (let i = 0; i < labPts.length; i++) {
+      off[labPts[i].name] = off[labPts[i].name] || 0;
+      for (let j = 0; j < i; j++) {
+        if (Math.abs(labPts[i].dd - labPts[j].dd) < 4 &&
+            Math.abs(labPts[i].pup - labPts[j].pup) < 5) {
+          off[labPts[i].name] = (off[labPts[j].name] || 0) + 13;
+        }
+      }
     }
-    const medSeries = { name: '历史样本中位路径', type: 'line', data: medData, smooth: true, showSymbol: false, z: 7, lineStyle: { color: '#A8875B', width: 2.6 }, itemStyle: { color: '#A8875B' } };
-    // 统计条
-    let st = document.getElementById('chart-sim').closest('.chart-card').querySelector('.chart-stats');
-    if (!st) { st = document.createElement('div'); st.className = 'chart-stats'; var _cc = document.getElementById('chart-sim').closest('.chart-card'); _cc.insertBefore(st, _cc.querySelector('#chart-sim')); }
-    st.innerHTML = '<span class="stat">近' + (wd === 22 ? '1' : wd === 60 ? '3' : '6') + '月 · ' + wd + ' 交易日 · ' + matches.length + ' 段样本</span>' +
-      '<span class="stat"><b>最高相似</b> ' + (matches[0] ? fmtNum(matches[0].corr * 100, 1) + '%' : '—') + '</span>';
-    const ch = charts['chart-sim'] || echarts.init(document.getElementById('chart-sim')); charts['chart-sim'] = ch;
+
+    const xs = pts.map(x => x.dd), ys = pts.map(x => x.pup);
+    const xmin = Math.floor(Math.min.apply(null, xs) / 10) * 10;
+    const xmax = Math.ceil(Math.max.apply(null, xs) / 10) * 10;
+    const ymin = Math.max(0, Math.floor(Math.min.apply(null, ys) / 10) * 10);
+    const ymax = Math.ceil(Math.max.apply(null, ys) / 10) * 10;
+
+    const mk = arr => arr.map(x => ({
+      name: x.name, value: [x.dd, x.pup],
+      med: x.p50, tp: x.t_pct, sp: x.s_pct,
+      label: labelled[x.name]
+        ? { show: true, position: x.dd > xmax - 6 ? 'left' : 'right', offset: [0, off[x.name] || 0] }
+        : { show: false }
+    }));
+    const ups = mk(pts.filter(x => x.p50 >= 0));
+    const downs = mk(pts.filter(x => x.p50 < 0));
+
+    if (charts['chart-sec']) charts['chart-sec'].dispose();
+    const ch = echarts.init(el);
+    charts['chart-sec'] = ch;
+    const ser = (name, data, color) => ({
+      name: name, type: 'scatter', data: data, symbolSize: 8.5, z: 3,
+      itemStyle: { color: color, borderColor: '#fff', borderWidth: 1 },
+      emphasis: { scale: 1.5 },
+      label: {
+        show: true, position: 'top', distance: 5, fontSize: 10.5, color: '#6B6558',
+        formatter: p => p.name
+      }
+    });
+    ch.setOption({
+      animation: false,
+      grid: { left: 8, right: 14, top: 28, bottom: 28, containLabel: true },
+      tooltip: {
+        trigger: 'item', backgroundColor: '#fff', borderColor: '#E6E1D6', borderWidth: 1,
+        padding: [9, 12], textStyle: { color: '#141313', fontSize: 12.5 },
+        formatter: p => {
+          const d = p.data;
+          return '<b>' + d.name + '</b><br>' +
+            '当前回撤 <b>' + fmtSigned(d.value[0], 1, '%') + '</b><br>' +
+            '上行概率 <b>' + fmtNum(d.value[1], 0) + '%</b><br>' +
+            '60 日中位 ' + fmtSigned(d.med, 1, '%') + '<br>' +
+            '时间进度 ' + d.tp + '% · 空间进度 ' + d.sp + '%';
+        }
+      },
+      xAxis: {
+        type: 'value', min: xmin, max: xmax, name: '当前回撤', nameLocation: 'middle', nameGap: 26,
+        nameTextStyle: { color: '#8A8578', fontSize: 11 },
+        axisLine: { show: false }, axisTick: { show: false },
+        splitLine: { lineStyle: { color: '#F1EDE4' } },
+        axisLabel: { color: '#8A8578', fontSize: 11, formatter: '{value}%' }
+      },
+      yAxis: {
+        type: 'value', min: ymin, max: ymax,
+        axisLine: { show: false }, axisTick: { show: false },
+        splitLine: { lineStyle: { color: '#F1EDE4' } },
+        axisLabel: { color: '#8A8578', fontSize: 11, formatter: '{value}%' }
+      },
+      series: [
+        Object.assign(ser('中位为正', ups, '#B8402F'), {
+          markLine: {
+            silent: true, symbol: 'none', z: 1,
+            lineStyle: { color: '#C9C2B2', type: 'dashed', width: 1 },
+            label: { formatter: '五五开', color: '#A8A294', fontSize: 10, position: 'insideEndTop' },
+            data: [{ yAxis: 50 }]
+          }
+        }),
+        ser('中位为负', downs, '#2E7D5B'),
+      ]
+    });
+
+    const cap = document.getElementById('ml-scap');
+    if (cap && M.sector_rho) {
+      const r = M.sector_rho;
+      cap.innerHTML = '横轴＝当前回撤（越左跌得越深），纵轴＝模型给出的上行概率。' +
+        '跌得深不等于概率高（ρ=' + fmtSigned(r.dd, 2, '') +
+        '）；真正把板块拉开的是「跌幅相对自己历史的进度」（ρ=' + fmtSigned(r.space, 2, '') + '）。';
+    }
+  }
+
+  // ---------- 国家队资金流 · 与指数对照 ----------
+  let NSF_IDX = '沪深300';
+  function renderNsf() {
+    const el = document.getElementById('chart-nsf');
+    if (!el) return;
+    const S = W.state_score;
+    const all = (S && S.nsf_all) || null;
+    const idxList = all ? Object.keys(all) : ['沪深300'];
+    if (idxList.indexOf(NSF_IDX) < 0) NSF_IDX = idxList[0];
+    const nsf = all ? all[NSF_IDX] : (S && S.nsf);
+    if (!nsf || !nsf.dates || !nsf.dates.length) {
+      el.innerHTML = '<div class="desc">国家队数据未生成，运行 python3 src/build_nsf.py</div>';
+      return;
+    }
+    const chipBox = document.getElementById('nsf-scope');
+    if (chipBox) {
+      chipBox.innerHTML = idxList.map(k =>
+        '<button data-nsf="' + k + '"' + (k === NSF_IDX ? ' class="active"' : '') + '>' + k + '</button>').join('');
+      chipBox.querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
+        if (b.dataset.nsf === NSF_IDX) return;
+        NSF_IDX = b.dataset.nsf;
+        renderNsf();
+      }));
+    }
+    const idx = NSF_IDX;
+    const k = (W.kline || {})[idx];
+    const closeMap = {};
+    if (k) k.dates.forEach((d, i) => { closeMap[d] = k.close[i]; });
+
+    const dates = nsf.dates, pct = nsf.pct, amt = nsf.amt || [];
+    const price = dates.map(d => (closeMap[d] == null ? null : closeMap[d]));
+
+    const asofEl = document.getElementById('nsf-asof');
+    if (asofEl) asofEl.textContent = '截至 ' + dates[dates.length - 1];
+
+    // 默认显示近 3 年，可滚轮缩放
+    const startPct = Math.max(0, Math.round((1 - 750 / dates.length) * 1000) / 10);
+
+    const noteEl = document.getElementById('nsf-note');
+    if (noteEl) {
+      const cur = pct[pct.length - 1], curAmt = amt[amt.length - 1];
+      const hist = pct.filter(v => v != null && !isNaN(v));
+      const rank = hist.filter(v => v < cur).length / hist.length * 100;
+      noteEl.innerHTML = '当前 <b>' + fmtSigned(cur, 1, '%') + '</b>' +
+        '（' + fmtSigned(curAmt, 0, '') + ' 亿元）· 历史 <b>' + fmtNum(rank, 0) + '%</b> 分位。' +
+        idx + ' ETF 份额变化 × 收盘价，20 日累计。';
+    }
+
+    const ch = charts['chart-nsf'] || echarts.init(el); charts['chart-nsf'] = ch;
     ch.setOption({
       textStyle: CHART_OPTS.textStyle, animation: false,
-      grid: { left: 58, right: 18, top: 58, bottom: 40 },
-      legend: { top: 0, type: 'scroll', textStyle: { color: C.ink, fontSize: 12 }, data: ['当前走势', '历史样本中位路径'].concat(histSeries.map(h => h.name)), itemWidth: 14, itemHeight: 3 },
-      tooltip: { trigger: 'axis', axisPointer: { type: 'cross', lineStyle: { color: 'rgba(20,19,19,.3)', type: 'dashed' } }, backgroundColor: 'rgba(255,255,255,.98)', borderColor: C.line, textStyle: { color: C.ink, fontSize: 11.5 }, formatter: function (ps) { if (!ps.length) return ''; let h = '<b>' + ps[0].axisValue + '</b>'; ps.forEach(p => { if (p.value != null) h += '<br/>' + p.marker + p.seriesName + '：' + fmtSigned(p.value, 1, '%'); }); return h; } },
-      xAxis: { type: 'category', data: xLabels, boundaryGap: false, axisLine: { lineStyle: { color: C.axis } }, axisLabel: { color: C.muted, fontSize: 12, interval: labelStep - 1 } },
-      yAxis: { type: 'value', scale: true, splitLine: { lineStyle: { color: C.grid } }, axisLabel: { color: C.muted, fontSize: 12, formatter: v => fmtNum(v, 0) + '%' } },
+      axisPointer: { link: [{ xAxisIndex: 'all' }] },
+      grid: [
+        { left: 64, right: 22, top: 22, height: '40%' },
+        { left: 64, right: 22, top: '60%', height: '26%' },
+      ],
+      tooltip: {
+        trigger: 'axis', axisPointer: { type: 'cross', lineStyle: { color: 'rgba(20,19,19,.3)', type: 'dashed' } },
+        backgroundColor: 'rgba(255,255,255,.98)', borderColor: C.line,
+        textStyle: { color: C.ink, fontSize: 11.5 },
+        formatter: function (ps) {
+          if (!ps.length) return '';
+          let h = '<b>' + ps[0].axisValue + '</b>';
+          ps.forEach(p => {
+            if (p.value == null) return;
+            if (p.seriesIndex === 0) h += '<br/>' + p.marker + idx + ' ' + fmtNum(p.value, 1);
+            else {
+              const i = p.dataIndex;
+              h += '<br/>' + p.marker + '20 日净申购 ' + fmtSigned(p.value, 1, '%') +
+                (amt[i] != null ? '（' + fmtSigned(amt[i], 0, '') + ' 亿元）' : '');
+            }
+          });
+          return h;
+        },
+      },
+      xAxis: [
+        { type: 'category', data: dates, gridIndex: 0, boundaryGap: false,
+          axisLine: { lineStyle: { color: C.axis } }, axisLabel: { show: false }, axisTick: { show: false } },
+        { type: 'category', data: dates, gridIndex: 1, boundaryGap: true,
+          axisLine: { lineStyle: { color: C.axis } }, axisTick: { show: false },
+          axisLabel: { color: C.muted, fontSize: 11, hideOverlap: true } },
+      ],
+      yAxis: [
+        { gridIndex: 0, scale: true, splitLine: { lineStyle: { color: C.grid } },
+          axisLine: { show: false }, axisLabel: { color: C.muted, fontSize: 11, formatter: v => fmtNum(v, 0) } },
+        { gridIndex: 1, scale: true, splitLine: { lineStyle: { color: C.grid } },
+          axisLine: { show: false }, axisLabel: { color: C.muted, fontSize: 11, formatter: v => fmtNum(v, 0) + '%' } },
+      ],
+      dataZoom: [{ type: 'inside', xAxisIndex: [0, 1], start: startPct, end: 100 }],
       series: [
-        { name: '当前走势', type: 'line', data: curSeries, smooth: true, showSymbol: false, z: 6, connectNulls: false, lineStyle: { color: '#0E1F35', width: 2.8 }, itemStyle: { color: '#0E1F35' },
-          markArea: { silent: true, label: { show: true, position: 'insideTop', formatter: '样本后' + FWD + '日', color: C.muted, fontSize: 12 }, data: [[{ xAxis: xLabels[wd - 1], itemStyle: { color: 'rgba(168,135,91,.08)' } }, { xAxis: xLabels[total - 1] }]] },
-          markLine: { silent: true, symbol: 'none', lineStyle: { color: 'rgba(20,19,19,.32)', type: 'dashed' }, label: { show: false }, data: [{ xAxis: xLabels[wd - 1] }] } },
-      ].concat([medSeries]).concat(histSeries),
+        { name: idx, type: 'line', xAxisIndex: 0, yAxisIndex: 0, data: price,
+          showSymbol: false, connectNulls: false, z: 3,
+          lineStyle: { color: C.ink, width: 1.5 }, itemStyle: { color: C.ink },
+          areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+            { offset: 0, color: 'rgba(14,31,53,.13)' }, { offset: 1, color: 'rgba(14,31,53,0)' }]) } },
+        { name: '20 日净申购', type: 'bar', xAxisIndex: 1, yAxisIndex: 1, data: pct,
+          barWidth: '62%',
+          itemStyle: { color: p => (p.value >= 0 ? 'rgba(184,64,47,.72)' : 'rgba(46,125,91,.72)') },
+          markLine: { silent: true, symbol: 'none', label: { show: false },
+            lineStyle: { color: 'rgba(20,19,19,.28)', width: 1 }, data: [{ yAxis: 0 }] } },
+      ],
     }, { notMerge: true });
-    // 下方：三张可点击的历史区间卡（悬停预览、点击锁定走势）
-    const cards = document.getElementById('sim-cards');
-    cards.innerHTML = '<div class="sim-head"><span class="sim-sec-title">历史区间</span>' +
-      '<span class="sim-hint"><span class="hint-hover">悬停预览 · </span>点击锁定</span></div>' +
-      '<div class="sim-cards">' + histMeta.map(function (hm, i) {
-        const m = hm.m, ph = hm.ph, f = m.fut30;
-        const phText = ph ? (ph.fullName
-          ? (ph.cycleName ? ph.cycleName + ' · ' : '') + ph.fullName
-          : ph.segStart.slice(0, 4) + '–' + ph.segEnd.slice(0, 4) + ' · ' + ph.type) : '全A早期';
-        return '<button type="button" class="sim-card" data-si="' + i + '">' +
-          '<span class="sc-top"><i class="sc-dot" style="background:' + colors[i % colors.length] + '"></i>' +
-          '<b class="sc-date">' + m.endDate + '</b><span class="sc-sim">相似度 <b>' + fmtNum(m.corr * 100, 1) + '%</b></span></span>' +
-          '<span class="sc-ph' + (ph ? '' : ' dim') + '">' + phText + '</span>' +
-          '<span class="sc-fut">后30日 <b class="' + (f == null ? '' : (f >= 0 ? 'up' : 'down')) + '">' + fmtSigned(f, 1, '%') + '</b></span>' +
-          '</button>';
-      }).join('') + '</div>';
-    let pinned = -1;
-    function highlight(si) {
-      ch.setOption({ series: histSeries.map(function (h, j) {
-        return { name: h.name, lineStyle: { width: si < 0 ? 1.7 : (j === si ? 3.4 : 0.8), opacity: si < 0 ? 1 : (j === si ? 1 : 0.2) } };
-      }) });
-      cards.querySelectorAll('.sim-card').forEach(function (c, j) {
-        c.classList.toggle('active', j === (si < 0 ? pinned : si));
-      });
-    }
-    cards.querySelectorAll('.sim-card').forEach(function (card) {
-      const si = +card.dataset.si;
-      card.addEventListener('mouseenter', function () { highlight(si); });
-      card.addEventListener('mouseleave', function () { highlight(pinned); });
-      card.addEventListener('click', function () {
-        pinned = pinned === si ? -1 : si;
-        highlight(pinned);
-      });
-    });
-    // 相似样本后30日收益分布：一行读完
-    const allM = computeSimilarity(idx, wd, FWD, 15);
-    const futs = allM.map(function (m) { return m.fut30; }).filter(function (v) { return v != null; }).sort(function (a, b) { return a - b; });
-    const scn = document.getElementById('sim-scenario');
-    if (scn) {
-      if (futs.length >= 3) {
-        // 线性插值分位数，样本较少时比直接取整更稳
-        const qf = function (q) {
-          const pos = (futs.length - 1) * q, lo = Math.floor(pos), hi = Math.ceil(pos);
-          return futs[lo] + (futs[hi] - futs[lo]) * (pos - lo);
-        };
-        const arr = [['悲观', qf(0.10)], ['中位', qf(0.50)], ['乐观', qf(0.90)]];
-        scn.innerHTML = '<div class="scn-line"><span class="scn-t">相似样本 · 后 30 日</span>' +
-          arr.map(function (x) {
-            return '<span class="scn-i ' + (x[1] >= 0 ? 'up' : 'down') + '">' + x[0] + ' <b>' + fmtSigned(x[1], 1, '%') + '</b></span>';
-          }).join('') +
-          '<span class="scn-n">' + futs.length + ' 个样本</span></div>';
-      } else { scn.innerHTML = ''; }
-    }
   }
+
+  // ---------- 状态打分 · 历史同档分布 ----------
+  function ssDistCell(d) {
+    if (!d || !d.ok) {
+      return '<td class="none">n=' + (d && d.n ? d.n : 0) + '</td>';
+    }
+    const tip = '胜率 ' + fmtNum(d.win, 0) + '%，中位 ' + fmtSigned(d.med, 1, '%') +
+      '，n=' + d.n + ' 天，' + (d.seg == null ? '—' : d.seg) + ' 段独立样本';
+    return '<td class="ssd" title="' + tip + '"><b class="' + (d.med >= 0 ? 'up' : 'down') + '">' +
+      fmtNum(d.win, 0) + '%</b><span>' + fmtSigned(d.med, 1, '%') + ' · ' +
+      (d.seg == null ? '—' : d.seg) + '段</span></td>';
+  }
+  function renderStateScore() {
+    const dimsEl = document.getElementById('state-dims');
+    const tblEl = document.getElementById('state-table');
+    if (!dimsEl || !tblEl) return;
+    const S = W.state_score;
+    if (!S) {
+      dimsEl.innerHTML = '<div class="desc">状态打分数据未生成，运行 python3 src/build_state_score.py</div>';
+      return;
+    }
+    const asofEl = document.getElementById('state-asof');
+    if (asofEl) asofEl.textContent = '截至 ' + S.asof;
+
+    // 全市场维度：只给分位，不合成
+    dimsEl.innerHTML = (S.market || []).map(function (m) {
+      const ext = (!isNil(m.pct) && (m.pct <= 5 || m.pct >= 95)) ? ' ext' : '';
+      const isCnt = (m.key === 'newhl');
+      const val = isCnt ? fmtSigned(m.value, 0, '') : fmtNum(m.value, 2);
+      const unit = isCnt ? ' 家' : (m.unit === '%' ? '%' : '');
+      const pct = isNil(m.pct) ? 0 : Math.max(2, Math.min(100, m.pct));
+      const range = (isNil(m.hist_min) || isNil(m.hist_max)) ? ''
+        : '<span class="ssm">历史 ' + fmtNum(m.hist_min, 1) + ' ~ ' + fmtNum(m.hist_max, 1) +
+          ' · 中位 ' + fmtNum(m.hist_med, 1) + '</span>';
+      const stale = m.stale ? '<span class="sswarn">数据截至 ' + m.data_asof + '，已过期</span>' : '';
+      const sub = m.sub ? '<span class="ssm sssub">' + m.sub + '</span>' : '';
+      return '<div class="ss-dim' + ext + '">' +
+        '<span class="ssn">' + m.name + '</span>' +
+        '<div class="ssv">' + val + (unit ? '<small>' + unit + '</small>' : '') + '</div>' +
+        '<div class="ss-bar"><i style="width:' + pct + '%"></i>' +
+        '<b style="left:calc(' + pct + '% - 1px)"></b></div>' +
+        '<span class="ssm">分位 ' + (isNil(m.pct) ? '—' : fmtNum(m.pct, 0) + '%') + '</span> ' + range + sub + stale +
+        '<span class="ssm" style="display:block;margin-top:2px">' + (m.desc || '') + '</span></div>';
+    }).join('');
+
+    // 指数对比表
+    let h = '<table class="ss-tbl"><thead><tr>' +
+      '<th>指数</th><th>距高</th><th>回撤</th><th>PB</th><th>PE</th>' +
+      '<th>30 日<br><span style="font-weight:400">胜率 / 中位</span></th>' +
+      '<th>60 日<br><span style="font-weight:400">胜率 / 中位</span></th>' +
+      '</tr></thead><tbody>';
+    (S.indices || []).forEach(function (x) {
+      const c = x.cur, s = x.score;
+      const bar = '<span class="pbar"><i style="width:' +
+        (isNil(s.dd) ? 0 : Math.max(2, Math.min(100, s.dd))) + '%"></i></span>';
+      h += '<tr>' +
+        '<td class="ss-idx"><b>' + x.name + '</b><span>' + (x.desc || '') + '</span></td>' +
+        '<td class="' + (c.dd250 <= -30 ? 'down' : '') + '">' + fmtSigned(c.dd250, 1, '%') + '</td>' +
+        '<td>' + bar + (isNil(s.dd) ? '<span class="none">—</span>' : fmtNum(s.dd, 0) + '%') + '</td>' +
+        '<td>' + (isNil(s.pb_pct) ? '<span class="none">—</span>' : fmtNum(s.pb_pct, 0)) + '</td>' +
+        '<td>' + (isNil(s.pe_pct) ? '<span class="none">—</span>' : fmtNum(s.pe_pct, 0)) + '</td>' +
+        ssDistCell(x.d30) + ssDistCell(x.d60) + '</tr>';
+    });
+    h += '</tbody></table>' +
+      '<div class="ss-note">回撤分位越低越极端。"同档"＝历史上回撤幅度相近（±7.5pp）的日子，其后续 30/60 日涨跌；' +
+      '段数是独立片段数——几千天如果只落在同几轮熊市里，那其实只有几个样本。</div>';
+    tblEl.innerHTML = h;
+  }
+
   function renderMacroCorr() {
     const body = document.getElementById('macro-corr-body');
     if (!body || body.dataset.done) return;
@@ -2816,6 +3105,153 @@
   }
 
   // 长周期指数口径：上证 2004 起 / 沪深300 2005 起
+  // ---------- 模型面板：排名 / 生存 / 转移 / 变点 ----------
+  function renderModels() {
+    const M = W.models_extra;
+    const tilesEl = document.getElementById('mp-tiles');
+    if (!tilesEl) return;
+    if (!M) {
+      tilesEl.innerHTML = '<div class="desc">模型面板未生成，运行 python3 src/build_models_extra.py</div>';
+      return;
+    }
+    const ae = document.getElementById('mp-asof');
+    if (ae) ae.textContent = '截至 ' + M.asof;
+
+    const en = M.ensemble || {}, tr = M.transition || {}, sv = M.survival || {},
+      rk = M.risk || {}, by = M.bayes || {};
+    const r0 = rk['创业板指'] || {};
+    const tiles = [
+      ['集成分', en.score == null ? '—' : fmtNum(en.score, 1), '/100'],
+      ['20 日转牛概率', tr.p_bull_20 == null ? '—' : fmtNum(tr.p_bull_20 * 100, 0), '%'],
+      ['中位剩余', sv.median_remaining == null ? '—' : sv.median_remaining, '日'],
+      ['20 日 VaR95', r0.var95 == null ? '—' : fmtSigned(r0.var95, 1, '%'), ''],
+      ['贝叶斯后验', by.posterior == null ? '—' : fmtSigned(by.posterior, 1, '%'), ''],
+    ];
+    tilesEl.innerHTML = tiles.map(t =>
+      '<div class="mp-tile"><span>' + t[0] + '</span><b>' + t[1] +
+      '<small>' + t[2] + '</small></b></div>').join('');
+
+    // 排名
+    const items = ((M.rank || {}).indices || []).slice();
+    if (items.length) {
+      const el = document.getElementById('mp-rank');
+      if (el) {
+        if (charts['mp-rank']) charts['mp-rank'].dispose();
+        const ch = echarts.init(el); charts['mp-rank'] = ch;
+        const sorted = items.slice().sort((a, b) => a.score - b.score);
+        ch.setOption({
+          animation: false,
+          grid: { left: 8, right: 26, top: 8, bottom: 8, containLabel: true },
+          tooltip: { trigger: 'item', backgroundColor: '#fff', borderColor: '#E6E1D6', borderWidth: 1,
+            textStyle: { color: '#141313', fontSize: 12.5 },
+            formatter: p => '<b>' + p.name + '</b><br>相对强弱得分 ' + fmtNum(p.value, 1) },
+          xAxis: { type: 'value', min: 0, max: 100, splitLine: { lineStyle: { color: '#F1EDE4' } },
+            axisLabel: { color: '#8A8578', fontSize: 11 } },
+          yAxis: { type: 'category', data: sorted.map(x => x.name), axisTick: { show: false },
+            axisLine: { show: false }, axisLabel: { color: '#37342F', fontSize: 12 } },
+          series: [{
+            type: 'bar', data: sorted.map(x => x.score), barWidth: 9,
+            itemStyle: { color: '#A8875B', borderRadius: [0, 2, 2, 0] },
+            label: { show: true, position: 'right', fontSize: 10.5, color: '#8A8578',
+              formatter: p => fmtNum(p.value, 0) }
+          }]
+        });
+      }
+    }
+
+    // 生存曲线
+    if (sv.days && sv.days.length) {
+      const el = document.getElementById('mp-surv');
+      if (el) {
+        if (charts['mp-surv']) charts['mp-surv'].dispose();
+        const ch = echarts.init(el); charts['mp-surv'] = ch;
+        ch.setOption({
+          animation: false,
+          grid: { left: 8, right: 18, top: 16, bottom: 4, containLabel: true },
+          tooltip: { trigger: 'axis', backgroundColor: '#fff', borderColor: '#E6E1D6', borderWidth: 1,
+            textStyle: { color: '#141313', fontSize: 12.5 },
+            formatter: ps => { const i = ps[0].dataIndex; return sv.days[i] + ' 日<br>仍有 <b>' +
+              fmtNum(sv.surv[i] * 100, 0) + '%</b> 的熊市未结束'; } },
+          xAxis: { type: 'category', data: sv.days, boundaryGap: false,
+            axisLabel: { color: '#8A8578', fontSize: 11, interval: 9, formatter: v => v + '日' },
+            axisLine: { lineStyle: { color: '#E6E1D6' } }, axisTick: { show: false } },
+          yAxis: { type: 'value', min: 0, max: 1, axisLabel: { color: '#8A8578', fontSize: 11, formatter: v => (v * 100) + '%' },
+            splitLine: { lineStyle: { color: '#F1EFE8' } }, axisLine: { show: false } },
+          series: [{
+            type: 'line', data: sv.surv, symbol: 'none', smooth: false,
+            lineStyle: { color: '#0E1F35', width: 2 }, areaStyle: { color: 'rgba(14,31,53,0.05)' },
+            markLine: sv.current_days == null ? undefined : {
+              silent: true, symbol: 'none',
+              lineStyle: { color: '#B8402F', type: 'dashed', width: 1 },
+              label: { formatter: '当前 ' + sv.current_days + ' 日', color: '#B8402F', fontSize: 10, position: 'insideEndTop' },
+              data: [{ xAxis: Math.round(sv.current_days / 20) }]
+            }
+          }]
+        });
+      }
+    }
+
+    // 转移概率
+    if (tr.curve && tr.curve.length) {
+      const el = document.getElementById('mp-trans');
+      if (el) {
+        if (charts['mp-trans']) charts['mp-trans'].dispose();
+        const ch = echarts.init(el); charts['mp-trans'] = ch;
+        ch.setOption({
+          animation: false,
+          grid: { left: 8, right: 14, top: 18, bottom: 4, containLabel: true },
+          tooltip: { trigger: 'item', backgroundColor: '#fff', borderColor: '#E6E1D6', borderWidth: 1,
+            textStyle: { color: '#141313', fontSize: 12.5 },
+            formatter: p => p.name + '<br>转牛概率 <b>' + fmtNum(p.value, 0) + '%</b>' },
+          xAxis: { type: 'category', data: tr.curve.map(x => x.bucket),
+            axisLabel: { color: '#8A8578', fontSize: 10.5 }, axisTick: { show: false },
+            axisLine: { lineStyle: { color: '#E6E1D6' } } },
+          yAxis: { type: 'value', axisLabel: { color: '#8A8578', fontSize: 11, formatter: '{value}%' },
+            splitLine: { lineStyle: { color: '#F1EFE8' } }, axisLine: { show: false } },
+          series: [{
+            type: 'bar', barWidth: 26,
+            data: tr.curve.map(x => ({
+              value: (x.p * 100), name: x.bucket,
+              itemStyle: { color: (x.bucket === tr.current_bucket) ? '#B8402F' : '#D8C9AE' }
+            })),
+            label: { show: true, position: 'top', fontSize: 10.5, color: '#8A8578', formatter: p => fmtNum(p.value, 0) + '%' }
+          }]
+        });
+      }
+    }
+
+    // 变点强度
+    const cp = M.changepoint;
+    if (cp && cp.series && cp.series.length) {
+      const el = document.getElementById('mp-cp');
+      if (el) {
+        if (charts['mp-cp']) charts['mp-cp'].dispose();
+        const ch = echarts.init(el); charts['mp-cp'] = ch;
+        ch.setOption({
+          animation: false,
+          grid: { left: 8, right: 14, top: 18, bottom: 4, containLabel: true },
+          tooltip: { trigger: 'axis', backgroundColor: '#fff', borderColor: '#E6E1D6', borderWidth: 1,
+            textStyle: { color: '#141313', fontSize: 12.5 },
+            formatter: ps => { const i = ps[0].dataIndex; const d = cp.series[i];
+              return d.date + '<br>强度 <b>' + d.p + '</b>（z=' + d.z + '）'; } },
+          xAxis: { type: 'category', data: cp.series.map(x => x.date),
+            axisLabel: { color: '#8A8578', fontSize: 10.5, interval: 60 },
+            axisTick: { show: false }, axisLine: { lineStyle: { color: '#E6E1D6' } } },
+          yAxis: { type: 'value', min: 0, max: 1, axisLabel: { color: '#8A8578', fontSize: 11 },
+            splitLine: { lineStyle: { color: '#F1EFE8' } }, axisLine: { show: false } },
+          series: [{
+            type: 'line', data: cp.series.map(x => x.p), symbol: 'none',
+            lineStyle: { color: '#A8875B', width: 1.6 }, areaStyle: { color: 'rgba(168,135,91,0.10)' },
+            markLine: { silent: true, symbol: 'none',
+              lineStyle: { color: '#C9C2B2', type: 'dashed', width: 1 },
+              label: { formatter: '0.5', color: '#A8A294', fontSize: 10 },
+              data: [{ yAxis: 0.5 }] }
+          }]
+        });
+      }
+    }
+  }
+
   function renderLongIndicators() {
     const grid = document.getElementById('ind-long');
     if (!grid) return;
@@ -2828,7 +3264,7 @@
     const head = document.getElementById('ind-long-head');
     const startY = (h && h.dates && h.dates[0] || '').slice(0, 4);
     if (head) head.innerHTML = '<b>长周期 · ' + name + '</b><span>' +
-      (has ? startY + ' 起 · 周频 · 指数口径' : '暂无' + SCOPE.index + '估值数据 · 暂以上证指数替代') + '</span>';
+      (has ? startY + ' 起 · 周频 · 指数口径' + (h && h.proj_start ? ' · ' + h.proj_start + ' 起为价格推算' : '') : '暂无' + SCOPE.index + '估值数据 · 暂以上证指数替代') + '</span>';
     if (!h || !h.dates || !h.dates.length) { grid.innerHTML = '<div class="empty-ind">长周期数据未加载</div>'; return; }
     const ITEMS = [
       { key: 'pe', title: 'PE(TTM)（倍）', unit: '', dec: 2 },
@@ -2855,7 +3291,7 @@
     grid.innerHTML = '';
     const INDS = [
       { key: 'margin', title: '融资余额 / A股总市值（%）', unit: '%', dec: 2 },
-      { key: 'amount', title: '全A成交额（亿元）', unit: '亿元', dec: 0 },
+      { key: 'amount_ratio', title: '全A成交额占A股总市值（%）', unit: '%', dec: 2 },
       { key: 'concentration', title: '成交集中度（前5%占比 %）', unit: '%', dec: 1 },
       { key: 'pe', title: '全A PE中位数（倍）', unit: '', dec: 2, showPct: true },
       { key: 'pb', title: '全A PB中位数（倍）', unit: '', dec: 2, showPct: true },

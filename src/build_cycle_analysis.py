@@ -234,7 +234,11 @@ def avg(vals):
 
 def main():
     klines = load_kline()
-    out = {'asof': ASOF, 'threshold': 10, 'indices': INDEX_LIST, 'cycles': {}, 'overall': {}}
+    # 本轮熊市终点跟随最新 K 线日期，避免每次更新都要手改常量
+    asof = max((kd['dates'][-1] for kd in klines.values() if kd.get('dates')),
+               default=ASOF)
+    CYCLES[-1]['bear'] = (CYCLES[-1]['bear'][0], asof)
+    out = {'asof': asof, 'threshold': 10, 'indices': INDEX_LIST, 'cycles': {}, 'overall': {}}
 
     for cy in CYCLES:
         item = {'name': cy['name'], 'ongoing': cy['ongoing'], 'bull': {}, 'bear': {}}

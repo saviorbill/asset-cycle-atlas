@@ -29,7 +29,18 @@ BASIC = os.path.join(DATA, 'stock_basic_all.csv')
 ANALYSIS = os.path.join(ROOT, 'cache', 'cycle_analysis.json')
 OUT_JSON = os.path.join(ROOT, 'cache', 'pullback_stats.json')
 OUT_JS = os.path.join(ROOT, 'web', 'pullback_stats.js')
-LOCAL_END = '2026-08-28'
+
+
+def _panel_last():
+    """本地个股面板的最后日期（跟随面板更新，不用手改常量）。"""
+    try:
+        d = pd.read_parquet(PANEL, columns=['date'])['date']
+        return str(pd.to_datetime(d).max().date())
+    except Exception:
+        return '2026-08-28'
+
+
+LOCAL_END = _panel_last()
 MIN_STOCKS = 5
 
 CYCLES = [
@@ -210,7 +221,7 @@ def main():
                 'episodes': [episode_rows(wide, basic, e, l_inds, l_codes, w_inds, w_codes, kind) for e in (eps or [])],
             }
         if cy['id'] == 'c24now':
-            item['bear']['note'] = '本地个股/行业数据截至 2026-08-28，熊市全段排名按该日截止；反弹窗口 2026-07-30 → 2026-08-17 完整覆盖'
+            item['bear']['note'] = ('本地个股/行业数据截至 %s，熊市全段排名按该日截止' % LOCAL_END)
         out['cycles'][cy['id']] = item
         print(cy['id'], 'bull eps', len(item['bull']['episodes']), 'bear eps', len(item['bear']['episodes']), flush=True)
 
