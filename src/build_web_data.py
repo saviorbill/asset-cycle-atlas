@@ -1003,16 +1003,29 @@ def main():
         "hero": build_hero(),
         "cycle_overlay": build_cycle_overlay(),
     }
-    # 拆分：核心数据 data.js（首屏用） + K线 data-kline.js（按需懒加载）
+    # 按视图拆分数据：首屏只加载核心；K线/指标/宏观/复盘覆盖按需懒加载
+    def _take(keys):
+        return {k: payload.pop(k) for k in keys if k in payload}
     kline = payload.pop("kline", {})
+    chunks = {
+        "data-cur.js": _take(("indicators", "index_history")),
+        "data-overlay.js": _take(("cycle_overlay",)),
+        "data-hist.js": _take(("main_daily", "index_events")),
+        "data-macro.js": _take(("macro",)),
+    }
     out = os.path.join(WEB, "data.js")
     with open(out, "w", encoding="utf-8") as f:
         f.write("window.WAW=" + json.dumps(payload, ensure_ascii=False) + ";")
+    print("已生成:", out, "| 大小:", round(os.path.getsize(out) / 1024, 0), "KB")
     out_k = os.path.join(WEB, "data-kline.js")
     with open(out_k, "w", encoding="utf-8") as f:
         f.write("window.WAW_KLINE=" + json.dumps(kline, ensure_ascii=False) + ";")
-    print("已生成:", out, "| 大小:", round(os.path.getsize(out) / 1024, 0), "KB")
     print("已生成:", out_k, "| 大小:", round(os.path.getsize(out_k) / 1024, 0), "KB")
+    for fn, d in chunks.items():
+        fp = os.path.join(WEB, fn)
+        with open(fp, "w", encoding="utf-8") as f:
+            f.write("window.WAW=Object.assign(window.WAW||{}," + json.dumps(d, ensure_ascii=False) + ");")
+        print("已生成:", fp, "| 大小:", round(os.path.getsize(fp) / 1024, 0), "KB")
     print("周期数:", len(CYCLES), "| 主图周数:", len(main_series["dates"]))
     print("相似度(20日):", sim["20"])
 

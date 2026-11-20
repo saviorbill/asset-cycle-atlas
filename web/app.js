@@ -325,6 +325,27 @@
     document.head.appendChild(s2);
   }
 
+  // ---------- 按视图懒加载（数据分块 + 次要模块），首屏只留核心 ----------
+  const _assetLoaded = {};
+  function ensureAssets(files, cb) {
+    let i = 0;
+    (function next() {
+      while (i < files.length && _assetLoaded[files[i]]) i++;
+      if (i >= files.length) { if (cb) cb(); return; }
+      const f = files[i++];
+      const sc = document.createElement('script');
+      sc.src = f + '?v=20261121b';
+      sc.async = true;
+      sc.onload = function () { _assetLoaded[f] = 1; next(); };
+      sc.onerror = function () { _assetLoaded[f] = 1; next(); };
+      document.head.appendChild(sc);
+    })();
+  }
+  const CUR_ASSETS = ['data-cur.js', 'data-overlay.js', 'state_score.js', 'hist_stats.js', 'ml_model.js', 'models_extra.js', 'conclusion.js'];
+  const HIST_ASSETS = ['data-overlay.js', 'data-hist.js', 'cycle_stats.js', 'cycle_analysis.js', 'pullback_stats.js'];
+  const MACRO_ASSETS = ['data-macro.js', 'models_extra.js'];
+  function withDeps(files, cb) { ensureAssets(files, function () { if (cb) cb(); }); }
+
   // ---------- 视图切换 ----------
   let histInit = false, curInit = false, macroInit = false;
   function go(view) {
@@ -338,26 +359,36 @@
     window.scrollTo({ top: 0, behavior: 'smooth' });
     if (view === 'history' && !histInit) {
       histInit = true;
-      ensureKline(function () {
-        setTimeout(function () {
-          renderHistory();
-          renderCycleOverview();
-        }, 40);
+      withDeps(HIST_ASSETS, function () {
+        ensureKline(function () {
+          setTimeout(function () {
+            renderHistory();
+            renderCycleOverview();
+          }, 40);
+        });
       });
     } else if (view === 'history') {
       // 从其他页面切回时容器才重新可见，按当前宽度重算主图纵向布局
-      ensureKline(function () { setTimeout(renderHistory, 30); });
+      withDeps(HIST_ASSETS, function () { ensureKline(function () { setTimeout(renderHistory, 30); }); });
     }
     if (view === 'cycle') {
       syncCycleTabs();
-      ensureKline(function () { setTimeout(function () { renderCyclePage(detailCycleId || W.cycles[W.cycles.length - 1].id); }, 40); });
+      withDeps(HIST_ASSETS, function () {
+        ensureKline(function () { setTimeout(function () { renderCyclePage(detailCycleId || W.cycles[W.cycles.length - 1].id); }, 40); });
+      });
     }
     if (view === 'history') { syncCycleTabs(); renderCycleOverview(); }
-    if (view === 'current' && !curInit) { curInit = true; ensureKline(function () { setTimeout(renderCurrent, 40); }); }
-    if (view === 'macro' && !macroInit) { macroInit = true; setTimeout(renderMacro, 40); }
+    if (view === 'current' && !curInit) {
+      curInit = true;
+      withDeps(CUR_ASSETS, function () { ensureKline(function () { setTimeout(renderCurrent, 40); }); });
+    }
+    if (view === 'macro' && !macroInit) {
+      macroInit = true;
+      withDeps(MACRO_ASSETS, function () { setTimeout(renderMacro, 40); });
+    }
     setTimeout(() => Object.values(charts).forEach(c => c.resize()), 80);
     // 复盘页首次可见后再建对照图，避免在隐藏容器里按 0 宽初始化
-    if (view === 'history' || view === 'cycle') ensureKline(function () { setTimeout(function () { updateCycleLens(true); }, 60); });
+    if (view === 'history' || view === 'cycle') withDeps(HIST_ASSETS, function () { ensureKline(function () { setTimeout(function () { updateCycleLens(true); }, 60); }); });
   }
   $$('.tn-item[data-view], .menu-item[data-view]').forEach(n => n.addEventListener('click', () => go(n.dataset.view)));
 
