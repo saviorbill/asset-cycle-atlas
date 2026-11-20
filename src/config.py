@@ -16,7 +16,8 @@ CACHE_DIR = os.path.join(APP_DATA, "cache")           # 可重建的中间层
 INDEX_KLINE_DIR = os.path.join(APP_DATA, "index_kline")  # 7 个指数的原始日线 xlsx
 INDEX_CSV = os.path.join(APP_DATA, "index_daily.csv")    # 八大指数收盘价（脚本产出/增量）
 EVENTS_CSV = os.path.join(APP_DATA, "policy_events.csv")  # 人工整理的政策事件
-OVERSEAS_DIR = os.path.join(DATA_DIR, "指数")             # 标普/道指/纳指/恒生 长历史日线
+OVERSEAS_DIR = os.path.join(DATA_DIR, "指数")
+GOLD_BRENT_CSV = os.path.join(APP_DATA, "gold_brent.csv")   # 黄金 / 布伦特原油             # 标普/道指/纳指/恒生 长历史日线
 
 # ADV 中国宏观数据（external，与 financial-charts 共用）
 ADV_MACRO_PATH = "/Users/kunrongcai/Desktop/LLM-AI Agent/Deepseek/Skill研究/financial-charts/js/china-macro.js"

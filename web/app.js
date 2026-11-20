@@ -947,37 +947,74 @@
     if (!histCycle) applyHistoryRange(SCOPE.range);
   }
 
-  // ---------- 首页迷你走势 ----------
+  // ---------- 首页迷你走势：多资产切换 ----------
+  let HERO_KEY = 'hs300';
   function renderHeroChart() {
     const el = document.getElementById('hero-chart');
     if (!el) return;
+    const list = W.hero || [];
+    if (!list.length) { el.innerHTML = '<div class="desc">走势数据未生成</div>'; return; }
+    let a = list.filter(x => x.key === HERO_KEY)[0] || list[0];
+    HERO_KEY = a.key;
+
+    const box = document.getElementById('hero-chips');
+    if (box) {
+      box.innerHTML = list.map(x =>
+        '<button data-hero="' + x.key + '"' + (x.key === a.key ? ' class="active"' : '') + '>' +
+        x.name + '</button>').join('');
+      box.querySelectorAll('button').forEach(function (b) {
+        b.addEventListener('click', function () {
+          HERO_KEY = b.dataset.hero;
+          renderHeroChart();
+        });
+      });
+    }
+
+    const nm = document.getElementById('hero-name');
+    if (nm) nm.textContent = a.name;
+    const rg = document.getElementById('hero-range');
+    if (rg) rg.textContent = a.dates[0].slice(0, 4) + ' — ' + a.dates[a.dates.length - 1].slice(0, 4);
+
     const ch = charts['hero-chart'] || echarts.init(el);
     charts['hero-chart'] = ch;
-    const idx = W.main; const dates = idx.dates, vals = idx['上证指数'];
-    const xs = dates.map(ts);
-    const segs = W.index_cycles['上证指数'];
+    const data = a.dates.map(function (d, i) { return [ts(d), a.vals[i]]; });
     ch.setOption({
       textStyle: CHART_OPTS.textStyle,
+      animation: false,
       grid: { left: 0, right: 0, top: 6, bottom: 0 },
+      tooltip: {
+        trigger: 'axis', backgroundColor: '#fff', borderColor: '#E6E1D6', borderWidth: 1,
+        textStyle: { color: '#141313', fontSize: 12 },
+        formatter: function (ps) {
+          if (!ps.length) return '';
+          const d = new Date(ps[0].value[0]);
+          return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '<br>' +
+            a.name + ' ' + fmtNum(ps[0].value[1], 1);
+        }
+      },
       xAxis: { type: 'time', show: false },
       yAxis: { type: 'value', show: false, scale: true },
       series: [{
-        type: 'line', data: xs.map((t, i) => [t, vals[i]]), showSymbol: false, smooth: true,
+        type: 'line', data: data, showSymbol: false, smooth: true,
         lineStyle: { color: '#0E1F35', width: 2 },
         areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(14,31,53,.10)' }, { offset: 1, color: 'rgba(14,31,53,0)' }] } },
-        markArea: { silent: true, data: segs.map(sg => [
-          { xAxis: ts(sg[1]), itemStyle: { color: sg[0] === 'bull' ? 'rgba(184,147,92,.12)' : 'rgba(96,116,142,.11)' } },
-          { xAxis: ts(sg[2]) },
-        ]) },
+        markArea: {
+          silent: true,
+          data: (a.segs || []).map(function (sg) {
+            return [{ xAxis: ts(sg[1]), itemStyle: { color: sg[0] === 'bull' ? 'rgba(184,147,92,.12)' : 'rgba(96,116,142,.11)' } },
+                    { xAxis: ts(sg[2]) }];
+          })
+        }
       }]
-    });
-    let lastV = null; for (let i = vals.length - 1; i >= 0; i--) { if (vals[i] != null) { lastV = vals[i]; break; } }
-    document.getElementById('hero-val').textContent = fmtNum(lastV, 0);
+    }, { notMerge: true });
+
+    const lastV = a.vals[a.vals.length - 1];
+    document.getElementById('hero-val').textContent = fmtNum(lastV, lastV >= 1000 ? 0 : 1);
     const chgEl = document.getElementById('hero-chg');
+    const yr = a.dates[a.dates.length - 1].slice(0, 4);
+    const bi = a.dates.findIndex(d => d >= yr + '-01-01');
     let ytd = null;
-    const dd = W.main_daily, dv = dd['上证指数'], yr = W.asof.slice(0, 4);
-    const bi = dd.dates.findIndex(d => d >= yr + '-01-01');
-    if (bi >= 0 && dv[bi] != null && lastV != null) ytd = (lastV / dv[bi] - 1) * 100;
+    if (bi >= 0 && a.vals[bi] != null && lastV != null) ytd = (lastV / a.vals[bi] - 1) * 100;
     if (ytd == null) { chgEl.textContent = '—'; chgEl.className = 'chg'; }
     else { chgEl.textContent = fmtSigned(ytd, 1, '%') + ' 今年以来'; chgEl.className = 'chg ' + (ytd >= 0 ? 'up' : 'down'); }
   }
@@ -1183,12 +1220,12 @@
       '<div class="chart-empty" id="chart-cycle-empty" hidden></div></div>' +
       '<section class="cycle-stats">' +
       '<div class="cst-head"><div><div class="cs-kicker">Cycle Statistics · 阶段统计</div>' +
-      '<h2 class="cst-title">' + cy.name + ' <span>指数 / 板块 / 个股</span></h2></div>' +
+      '<h2 class="cst-title">' + cy.name + '</h2></div>' +
       '<div class="cst-sub">指数按各自最高点切分；板块、个股沿用同一阶段窗口。</div></div>' +
       '<div class="cst-tabs">' +
-      '<button class="cst-tab' + (cycleTab === 'index' ? ' active' : '') + '" data-cstab="index">指数 · 全指数对比</button>' +
-      '<button class="cst-tab' + (cycleTab === 'sector' ? ' active' : '') + '" data-cstab="sector">板块 · 行业</button>' +
-      '<button class="cst-tab' + (cycleTab === 'stock' ? ' active' : '') + '" data-cstab="stock">个股 · Top10</button>' +
+      '<button class="cst-tab' + (cycleTab === 'index' ? ' active' : '') + '" data-cstab="index">指数</button>' +
+      '<button class="cst-tab' + (cycleTab === 'sector' ? ' active' : '') + '" data-cstab="sector">板块</button>' +
+      '<button class="cst-tab' + (cycleTab === 'stock' ? ' active' : '') + '" data-cstab="stock">个股</button>' +
       '</div><div class="cst-body" id="cst-body"></div></section>' +
       '<div class="cycle-narrative"><div class="cn-head"><h2>完整叙事 · 两月分段与事件</h2><span>滚动左栏，右侧对照两月走势</span></div>' +
       '<div id="cycle-narrative"></div></div>';
@@ -1358,7 +1395,7 @@
 
   function phaseValue(v, kind) {
     if (!v) return '<span class="ix-v na">—</span>';
-    if (kind === 'days') return '<span class="ix-v">' + fmtNum(v.days, 0) + '<small>' + fmtNum(v.months, 1) + ' 个月</small></span>';
+    if (kind === 'days') return '<span class="ix-v">' + fmtNum(v.months / 12, 1) + '<small>年</small></span>';
     if (kind === 'ret') return '<span class="ix-v ' + (v.ret > 0 ? 'up' : 'down') + '">' + fmtSigned(v.ret, 1, '%') + '</span>';
     if (kind === 'mdd') return '<span class="ix-v down">' + fmtSigned(v.mdd, 1, '%') + '</span>';
     if (kind === 'mrb') return '<span class="ix-v up">' + fmtSigned(v.mrb, 1, '%') + '</span>';
@@ -1617,6 +1654,35 @@
       '<span class="t">' + (kind === 'bull' ? '主升浪第 ' : '主跌浪第 ') + (e.from_start == null ? '—' : e.from_start) + ' 日后</span></div>';
   }
 
+  function indexSummary(ca, c) {
+    const bulls = [], bears = [];
+    ca.indices.forEach(n => {
+      const b = c.bull[n], s = c.bear[n];
+      if (b && b.ret != null) bulls.push({ n: n, v: b.ret, mdd: b.mdd });
+      if (s && s.ret != null) bears.push({ n: n, v: s.ret, mrb: s.mrb });
+    });
+    if (bulls.length < 3 || bears.length < 3) return '';
+    const byRet = bulls.slice().sort((a, b) => b.v - a.v);
+    const lead = byRet[0];
+    const byDd = bulls.filter(x => x.mdd != null).sort((a, b) => a.mdd - b.mdd);
+    const leadDdRank = byDd.findIndex(x => x.n === lead.n) + 1;
+
+    const byDrop = bears.slice().sort((a, b) => a.v - b.v);
+    const worst = byDrop[0];
+    const byReb = bears.filter(x => x.mrb != null).sort((a, b) => b.mrb - a.mrb);
+    const worstRebRank = byReb.findIndex(x => x.n === worst.n) + 1;
+
+    let t1 = '牛市领涨 <b>' + lead.n + '</b>（' + fmtSigned(lead.v, 1, '%') + '）';
+    t1 += leadDdRank <= 3
+      ? '，回调时也跌得最凶（最大回撤第 ' + leadDdRank + '/' + byDd.length + '）—— 高 beta 的双刃剑。'
+      : '，回调时相对抗跌（最大回撤第 ' + leadDdRank + '/' + byDd.length + '）—— 主线韧性更强。';
+    let t2 = '熊市跌得最深的是 <b>' + worst.n + '</b>（' + fmtSigned(worst.v, 1, '%') + '）';
+    t2 += worstRebRank <= 3
+      ? '，反弹时也最能涨（最大反弹第 ' + worstRebRank + '/' + byReb.length + '）—— 超跌反弹成立。'
+      : '，但反弹并不领先（最大反弹第 ' + worstRebRank + '/' + byReb.length + '）—— 跌得多不等于弹得快。';
+    return '<div class="cst-sec-note" style="margin-top:10px;color:var(--ink-2)">' + t1 + t2 + '</div>';
+  }
+
   function indexStatsHtml(cy) {
     const ca = caData();
     const c = ca && ca.cycles && ca.cycles[cy.id];
@@ -1644,9 +1710,10 @@
         (hasEps ? episodeChartPanel(chartId, 'bull', n) : '') +
         '</div></details>';
     });
-    return '<div class="cst-sec"><div class="cst-sec-h"><h3>全指数 · 牛市 / 熊市对比</h3><span>按各指数自身高点切分 · 单位：交易日 / %</span></div>' +
+    return '<div class="cst-sec"><div class="cst-sec-h"><h3>全指数 · 牛市 / 熊市对比</h3><span>按各指数自身高点切分 · 涨跌幅与历时（年）</span></div>' +
       '<div class="ix-wrap"><div class="ix-table">' + head + rows + '</div></div>' +
       '<div class="cst-sec-note">牛市涨幅 = 起点 → 区间最高；熊市跌幅 = 区间最高 → 终点。最大回撤/反弹取阶段极值；≥10% 波段次数与明细见下方展开；指数成立晚于阶段起点时留空。</div>' +
+      indexSummary(ca, c) +
       '<div style="margin-top:10px">' + details + '</div></div>';
   }
 
@@ -1739,8 +1806,6 @@
       '<div class="cs-list"><div class="cs-list-h"><h3>牛市 · 个股涨幅 Top10</h3><span>阶段起点 → 终点</span></div>' + miniStockTable(cs.bull.stocks) + '</div>' +
       '<div class="cs-list"><div class="cs-list-h"><h3>' + bearWord + ' · 个股跌幅 Top10</h3><span>阶段起点 → 终点</span></div>' + miniStockTable(cs.bear.stocks_bottom) + '</div>' +
       '</div></div>' +
-      episodesSection(cy, 'bull', 'stock', '牛市主要回调 · 跌幅前10个股') +
-      episodesSection(cy, 'bear', 'stock', bearWord + '主要反弹 · 涨幅前10个股') +
       '<div class="cst-sec-note" style="margin-top:10px">口径：沪深A股复权价；剔除当前名称含 ST/*ST/退 的股票；牛市阶段剔除起点后上市新股；仅统计窗口起止均有行情的个股。逐段明细的本地面板不含已退市股票，跌幅榜存在幸存者偏差。</div>';
   }
 
@@ -2404,6 +2469,7 @@
   function renderCurrent() {
     const _pa = document.getElementById('dash-asof');
     if (_pa) _pa.innerHTML = '<span class="dot"></span>数据截至 <b>' + W.asof + '</b>';
+    renderCycleOverlay();
     renderConclusion();
     renderNsf();
     renderHistStats();
@@ -2416,6 +2482,15 @@
   function renderConclusion() {
     const el = document.getElementById('conclusion');
     if (!el) return;
+    if (typeof AF_CAT !== 'undefined' && AF_CAT !== 'a') {
+      const nm = ((W.cycle_overlay || {})[AF_CAT] || {}).name || '该资产';
+      el.innerHTML = '<div class="rec-placeholder"><b>' + nm + '</b> 综合建议暂未上线。' +
+        '<span>目前只有 A股 有完整的历史统计与模型打分；' + nm +
+        ' 的周期走势已在上面给出，建议框架仍在搭建中。</span></div>';
+      const ae0 = document.getElementById('concl-asof');
+      if (ae0) ae0.textContent = '暂未上线';
+      return;
+    }
     const C = W.conclusion;
     if (!C) { el.innerHTML = '<div class="desc">结论未生成，运行 python3 src/build_conclusion.py</div>'; return; }
     const asofEl = document.getElementById('concl-asof');
@@ -2520,6 +2595,156 @@
       '<div class="rec-stats">' + stats + '</div>' +
       '<div class="rec-line">' + ledger + '</div>' +
       secHtml;
+  }
+
+  // ---------- 资产走势：按资产类别 + 具体标的 ----------
+  let AF_CAT = 'a';
+  let AF_ITEM = null;
+  const AF_CATS = [
+    ['a', 'A股', '', 'stock'],
+    ['us', '美股', '', 'stock'],
+    ['jp', '日股', '', 'stock'],
+    ['bond', '债券', '未上线', 'other'],
+    ['cmdty', '商品', '', 'other'],
+    ['other', '其他', '未上线', 'other'],
+  ];
+  function afCurrent() {
+    const D = W.cycle_overlay || {};
+    const cat = D[AF_CAT];
+    if (!cat || !cat.items || !cat.items.length) return null;
+    const item = cat.items.filter(x => x.key === AF_ITEM)[0] || cat.items[0];
+    AF_ITEM = item.key;
+    return { cat: cat, item: item };
+  }
+  function renderCycleOverlay() {
+    const el = document.getElementById('chart-cycle-overlay');
+    if (!el) return;
+    const D = W.cycle_overlay || {};
+    const keys = Object.keys(D);
+    if (!keys.length) { el.innerHTML = '<div class="desc">走势数据未生成</div>'; return; }
+    if (!D[AF_CAT]) AF_CAT = keys[0];
+    const aOnly = document.getElementById('a-only');
+    if (aOnly) aOnly.hidden = (AF_CAT !== 'a');
+    const cur = afCurrent();
+    if (!cur) return;
+    const cat = cur.cat, item = cur.item;
+
+    const list = document.getElementById('af-list');
+    if (list) {
+      const mk = it => {
+        const ok = keys.indexOf(it[0]) >= 0;
+        return '<div class="af-item' + (ok ? '' : ' disabled') + (it[0] === AF_CAT ? ' active' : '') +
+          '" data-af="' + it[0] + '"><span>' + it[1] + '</span><em>' +
+          (ok ? (D[it[0]].items || []).length + ' 个标的' : '未上线') + '</em></div>';
+      };
+      list.innerHTML = '<div class="af-group">股票</div>' +
+        AF_CATS.filter(x => x[3] === 'stock').map(mk).join('') +
+        '<div class="af-group">其他资产</div>' +
+        AF_CATS.filter(x => x[3] === 'other').map(mk).join('');
+      list.querySelectorAll('.af-item').forEach(function (d) {
+        d.addEventListener('click', function () {
+          if (d.classList.contains('disabled') || d.dataset.af === AF_CAT) return;
+          AF_CAT = d.dataset.af; AF_ITEM = null;
+          renderCycleOverlay();
+          renderConclusion();
+        });
+      });
+    }
+
+    const chips = document.getElementById('af-items');
+    if (chips) {
+      chips.innerHTML = (cat.items || []).map(x =>
+        '<button data-afi="' + x.key + '"' + (x.key === item.key ? ' class="active"' : '') + '>' +
+        x.name + '</button>').join('');
+      chips.querySelectorAll('button').forEach(function (b) {
+        b.addEventListener('click', function () {
+          if (b.dataset.afi === AF_ITEM) return;
+          AF_ITEM = b.dataset.afi;
+          renderCycleOverlay();
+        });
+      });
+    }
+
+    const note = document.getElementById('af-note');
+    if (note) {
+      const n = (item.cycles || []).length;
+      note.innerHTML = item.name + ' · ' + n + ' 轮牛熊。每条线从该轮起点归零，横轴是第几个交易日，' +
+        '纵轴是相对起点的累计收益。红色为本轮。';
+    }
+
+    const ch = charts['chart-cycle-overlay'] || echarts.init(el);
+    charts['chart-cycle-overlay'] = ch;
+    const GOLD = '#A8875B';
+    const series = (item.cycles || []).map(function (c, i) {
+      return {
+        name: c.label,
+        type: 'line',
+        data: c.vals.map(function (v, j) { return [j, v]; }),
+        showSymbol: false, smooth: true, z: c.current ? 6 : 2 + i,
+        lineStyle: {
+          width: c.current ? 2.6 : 1.4,
+          color: c.current ? '#B8402F' : 'rgba(168,135,91,' + (0.42 + i * 0.07) + ')',
+        },
+        itemStyle: { color: c.current ? '#B8402F' : GOLD },
+        emphasis: { focus: 'series' },
+      };
+    });
+    ch.setOption({
+      animation: false,
+      grid: { left: 8, right: 18, top: 34, bottom: 6, containLabel: true },
+      legend: { top: 0, left: 0, itemWidth: 14, itemHeight: 2, itemGap: 14,
+        textStyle: { color: '#6B6558', fontSize: 11.5 } },
+      tooltip: {
+        trigger: 'axis', backgroundColor: '#fff', borderColor: '#E6E1D6', borderWidth: 1,
+        textStyle: { color: '#141313', fontSize: 12 },
+        formatter: function (ps) {
+          let h = '<b>第 ' + ps[0].value[0] + ' 个交易日</b>';
+          ps.forEach(function (p) {
+            if (p.value == null) return;
+            h += '<br>' + p.marker + p.seriesName + ' ' + fmtSigned(p.value[1], 1, '%');
+          });
+          return h;
+        },
+      },
+      xAxis: {
+        type: 'value', min: 0,
+        axisLine: { show: false }, axisTick: { show: false },
+        splitLine: { lineStyle: { color: '#F1EFE8' } },
+        axisLabel: { color: '#8A8578', fontSize: 11 },
+      },
+      yAxis: {
+        type: 'value', axisLabel: { color: '#8A8578', fontSize: 11, formatter: '{value}%' },
+        splitLine: { lineStyle: { color: '#F1EFE8' } }, axisLine: { show: false },
+      },
+      series: series,
+    }, { notMerge: true });
+
+    // 图表下方：各资产周期统计
+    const stBox = document.getElementById('af-stats');
+    if (stBox) {
+      let rows = '';
+      Object.keys(D).forEach(function (k) {
+        const cat = D[k];
+        (cat.items || []).forEach(function (it) {
+          const st = it.stats;
+          if (!st) return;
+          const on = (k === AF_CAT && it.key === AF_ITEM);
+          rows += '<tr' + (on ? ' class="on"' : '') + '>' +
+            '<td class="cat">' + cat.name + '</td>' +
+            '<td>' + it.name + '</td>' +
+            '<td>' + st.n + '</td>' +
+            '<td>' + fmtNum(st.med_yrs, 1) + ' 年</td>' +
+            '<td>' + fmtNum(st.max_yrs, 1) + ' 年</td>' +
+            '<td>' + fmtSigned(st.med_peak, 0, '%') + '</td>' +
+            '<td>' + fmtSigned(st.med_end, 0, '%') + '</td></tr>';
+        });
+      });
+      stBox.innerHTML = '<table class="af-tbl"><thead><tr>' +
+        '<th>类别</th><th>标的</th><th>轮数</th><th>中位时长</th><th>最长</th>' +
+        '<th>中位最大涨幅</th><th>中位终值</th></tr></thead><tbody>' + rows + '</tbody></table>' +
+        '<div class="af-note">时长按 244 个交易日/年折算；最大涨幅 = 该轮内相对起点的最高涨幅；' +
+        '终值 = 该轮结束时相对起点的收益。样本少（A股 4–5 轮），中位数只作量级参考。</div>';
+    }
   }
 
   // ---------- 历史统计：技术 / 基本面 / 情绪 三维打分 ----------

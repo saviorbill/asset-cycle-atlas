@@ -4,7 +4,7 @@
 包含：主图指数(上证/沪深300/创业板, 2005起周线)、5轮牛熊周期分段+4阶段文案、
 指标序列(融资/成交额/集中度/PE/换手/广度/涨停)、当前观察最近价格与历史相似度。
 """
-import os, sys, json
+import os, sys, json, glob
 import numpy as np
 import pandas as pd
 
@@ -13,7 +13,8 @@ PROJ = os.path.dirname(SRC)
 sys.path.insert(0, SRC)
 sys.path.insert(0, PROJ)
 from config import (INDEX_CSV, INDEX_KLINE_DIR, CACHE_DIR, MARGIN_CSV,
-                    LIMIT_CPT_CSV, LIMIT_DAILY_CSV, HK_HOLD_CSV, ADV_MACRO_PATH)
+                    LIMIT_CPT_CSV, LIMIT_DAILY_CSV, HK_HOLD_CSV, ADV_MACRO_PATH,
+                    OVERSEAS_DIR, GOLD_BRENT_CSV, DATA_DIR)
 
 WEB = os.path.join(PROJ, "web")
 os.makedirs(WEB, exist_ok=True)
@@ -48,6 +49,297 @@ def load_index_history():
             "turnover": [round(float(v), 3) for v in w["turnover_rate"]],
             "proj_start": proj_start,
         }
+    return out
+
+
+
+# ---------- 首页 Hero：多资产走势 ----------
+def _episodes(v, thr=0.20):
+    segs, trend = [], None
+    ext_px, ext_i, last_i = v[0], 0, 0
+    for i in range(1, len(v)):
+        p = v[i]
+        if trend is None:
+            if p > ext_px * (1 + thr):
+                trend = "bull"; segs.append(("bull", last_i, ext_i)); last_i, ext_px, ext_i = ext_i, p, i
+            elif p < ext_px * (1 - thr):
+                trend = "bear"; segs.append(("bear", last_i, ext_i)); last_i, ext_px, ext_i = ext_i, p, i
+            elif p > ext_px:
+                ext_px, ext_i = p, i
+            continue
+        if trend == "bull":
+            if p > ext_px:
+                ext_px, ext_i = p, i
+            elif p <= ext_px * (1 - thr):
+                segs.append(("bull", last_i, ext_i)); last_i, ext_px, ext_i = ext_i, p, i; trend = "bear"
+        else:
+            if p < ext_px:
+                ext_px, ext_i = p, i
+            elif p >= ext_px * (1 + thr):
+                segs.append(("bear", last_i, ext_i)); last_i, ext_px, ext_i = ext_i, p, i; trend = "bull"
+    segs.append((trend or "bull", last_i, len(v) - 1))
+    return segs
+
+
+def _monthly(s):
+    """取每月最后一个交易日的收盘价，压缩体积。"""
+    m = s.resample("ME").last().dropna()
+    return m.index, m.values
+
+
+def _hero_asset(key, name, s):
+    s = s.dropna()
+    if len(s) < 200:
+        return None
+    segs = _episodes(s.values)
+    dts, vals = _monthly(s)
+    return dict(
+        key=key, name=name,
+        dates=[d.strftime("%Y-%m-%d") for d in dts],
+        vals=[round(float(v), 2) for v in vals],
+        segs=[[k, s.index[a].strftime("%Y-%m-%d"), s.index[b].strftime("%Y-%m-%d")]
+              for k, a, b in segs],
+    )
+
+
+
+def _cycle_pairs(s, max_cycles=None):
+    """把 20% 分段配对成「牛市起点 → 熊市终点」，每轮从 0 起算。"""
+    v = s.values
+    eps = _episodes(v)
+    pairs, i = [], 0
+    while i < len(eps):
+        k, i0, i1 = eps[i]
+        if k == "bull":
+            if i + 1 < len(eps) and eps[i + 1][0] == "bear":
+                end = eps[i + 1][2]
+                i += 2
+            else:
+                end = i1
+                i += 1
+            pairs.append((i0, end))
+        else:
+            i += 1
+    if max_cycles:
+        pairs = pairs[-max_cycles:]
+    out = []
+    for n, (i0, i1) in enumerate(pairs):
+        seg = v[i0:i1 + 1]
+        if len(seg) < 30:
+            continue
+        base = seg[0]
+        out.append(dict(
+            label="%s–%s" % (s.index[i0].strftime("%y"), s.index[i1].strftime("%y")),
+            start=s.index[i0].strftime("%Y-%m-%d"),
+            end=s.index[i1].strftime("%Y-%m-%d"),
+            vals=[round(float(x / base - 1) * 100, 1) for x in seg],
+            days=int(len(seg)),
+            current=bool(i1 >= len(v) - 5),
+        ))
+    return out
+
+
+
+# 业内标准熊市区间（20% 回撤口径，Yardeni / S&P DJI 口径），(峰, 谷)
+US_BEARS = [
+    ("1929-09-16", "1932-06-01"), ("1937-03-06", "1938-03-31"),
+    ("1938-11-12", "1942-04-28"), ("1946-05-29", "1949-06-13"),
+    ("1956-08-06", "1957-10-22"), ("1961-12-12", "1962-06-26"),
+    ("1966-02-09", "1966-10-07"), ("1968-11-29", "1970-05-26"),
+    ("1973-01-11", "1974-10-03"), ("1976-09-22", "1978-03-01"),
+    ("1980-11-28", "1982-08-12"), ("1987-08-25", "1987-12-04"),
+    ("1990-07-16", "1990-10-11"), ("2000-03-24", "2002-10-09"),
+    ("2007-10-09", "2009-03-09"), ("2020-02-19", "2020-03-23"),
+    ("2022-01-03", "2022-10-12"),
+]
+N225_BEARS = [
+    ("1989-12-29", "1992-08-18"), ("1996-06-26", "1998-10-09"),
+    ("2000-04-12", "2003-04-28"), ("2007-02-26", "2009-03-10"),
+    ("2015-06-24", "2016-06-24"), ("2018-10-02", "2018-12-25"),
+    ("2020-01-20", "2020-03-19"), ("2021-09-14", "2022-10-20"),
+    ("2024-07-11", "2024-08-05"),
+]
+# 黄金：世界黄金协会口径（1970 年以来 6 牛 5 熊），只取谷底定周期边界
+GOLD_BEARS = [
+    ("1975-01-06", "1976-09-30"), ("1980-02-01", "1985-03-29"),
+    ("1987-12-14", "1993-03-31"), ("1996-02-02", "1999-09-30"),
+    ("2011-09-06", "2015-12-17"), ("2020-08-06", "2022-09-30"),
+]
+
+
+def _standard_cycles(s, bears, max_cycles=8):
+    """按业内熊市区间切：每轮 = 上一个谷 → 本个谷（含牛熊两段）。"""
+    s = s.dropna()
+    if not len(s):
+        return []
+    first = s.index[0]
+    # 第一轮从第一段熊市的峰值起算；否则日经会从 1949 一路连到 1992
+    prev = max(first, pd.Timestamp(bears[0][0])) if bears else first
+    out = []
+    for pk, tr in bears:
+        t_pk = pd.Timestamp(pk)
+        t_tr = pd.Timestamp(tr)
+        if t_tr < first or t_tr > s.index[-1]:
+            continue
+        start = max(prev, first)
+        seg = s[(s.index >= start) & (s.index <= t_tr)]
+        if len(seg) < 30:
+            prev = t_tr
+            continue
+        base = float(seg.iloc[0])
+        out.append(dict(
+            label="%s–%s" % (pd.Timestamp(start).strftime("%y"), t_tr.strftime("%y")),
+            start=pd.Timestamp(start).strftime("%Y-%m-%d"),
+            end=t_tr.strftime("%Y-%m-%d"),
+            vals=[round(float(x / base - 1) * 100, 1) for x in seg.values],
+            days=int(len(seg)),
+            current=(t_tr == max(pd.Timestamp(x[1]) for x in bears if pd.Timestamp(x[1]) <= s.index[-1])),
+        ))
+        prev = t_tr
+    # 最后一段未走完的牛市也画出来，标为本轮
+    if prev < s.index[-1]:
+        seg = s[s.index >= prev]
+        if len(seg) >= 30:
+            base = float(seg.iloc[0])
+            out.append(dict(
+                label="%s–至今" % pd.Timestamp(prev).strftime("%y"),
+                start=pd.Timestamp(prev).strftime("%Y-%m-%d"),
+                end=s.index[-1].strftime("%Y-%m-%d"),
+                vals=[round(float(x / base - 1) * 100, 1) for x in seg.values],
+                days=int(len(seg)), current=True))
+            for c in out[:-1]:
+                c["current"] = False
+    return out[-max_cycles:] if max_cycles else out
+
+
+def _cycle_stats(cycles):
+    if not cycles:
+        return None
+    yrs = [c["days"] / 244 for c in cycles]
+    peaks = [max(c["vals"]) for c in cycles]
+    ends = [c["vals"][-1] for c in cycles]
+    return dict(n=len(cycles), med_yrs=round(float(np.median(yrs)), 1),
+                max_yrs=round(float(max(yrs)), 1),
+                med_peak=round(float(np.median(peaks))),
+                med_end=round(float(np.median(ends))), max_days=max(c["days"] for c in cycles))
+
+
+def _canon_cycles(s):
+    """A股用规范五轮；指数成立晚于阶段起点的自动跳过。"""
+    out, last = [], s.index[-1]
+    for cy in CYCLES:
+        t0 = pd.Timestamp(cy["start"])
+        t1 = pd.Timestamp(cy["end"]) if cy.get("end") else last
+        seg = s[(s.index >= t0) & (s.index <= t1)]
+        if len(seg) < 30:
+            continue
+        base = float(seg.iloc[0])
+        out.append(dict(
+            label=cy["name"], start=t0.strftime("%Y-%m-%d"), end=t1.strftime("%Y-%m-%d"),
+            vals=[round(float(x / base - 1) * 100, 1) for x in seg.values],
+            days=int(len(seg)), current=(cy.get("id") == "c24now"),
+        ))
+    return out
+
+
+def _read_xlsx_index(code):
+    fp = os.path.join(OVERSEAS_DIR, "K线导出_%s_日线数据.xlsx" % code)
+    if not os.path.exists(fp):
+        return None
+    d = pd.read_excel(fp)
+    dt = pd.to_datetime(d["交易时间"], errors="coerce")
+    v = pd.to_numeric(d["收盘价"], errors="coerce")
+    s = pd.DataFrame({"d": dt, "v": v}).dropna().sort_values("d").set_index("d")["v"]
+    return s
+
+
+def _read_global(code, start="2009-01-01"):
+    fs = sorted(glob.glob(os.path.join(DATA_DIR, "ml_data", "index_global", "*.parquet")))
+    if not fs:
+        return None
+    d = pd.concat([pd.read_parquet(f, columns=["ts_code", "trade_date", "close"]) for f in fs],
+                  ignore_index=True)
+    d = d[d.ts_code == code]
+    if not len(d):
+        return None
+    d["d"] = pd.to_datetime(d["trade_date"].astype(str))
+    s = d.sort_values("d").set_index("d")["close"].astype(float)
+    return s[s.index >= start]
+
+
+def build_cycle_overlay():
+    px = pd.read_csv(INDEX_CSV, parse_dates=["date"]).set_index("date").sort_index()
+    out = {}
+
+    a_items = []
+    for name in ["沪深300", "中证500", "中证1000", "创业板指"]:
+        if name not in px.columns:
+            continue
+        s = px[name].replace(0.0, np.nan).dropna()
+        cyc = _canon_cycles(s)
+        if cyc:
+            a_items.append(dict(key=name, name=name, cycles=cyc))
+    if a_items:
+        out["a"] = dict(name="A股", items=a_items)
+
+    us_items = []
+    for code, name in [("SPX", "标普500"), ("IXIC", "纳斯达克"), ("DJIA", "道琼斯")]:
+        s = _read_xlsx_index(code)
+        if s is None:
+            continue
+        if code == "IXIC":
+            s = s[s.index >= "1971-01-01"]
+        us_items.append(dict(key=code, name=name, cycles=_standard_cycles(s, US_BEARS)))
+    if us_items:
+        out["us"] = dict(name="美股", items=us_items)
+
+    # 优先用「指数/」下的日经 K 线（可放长历史），没有再用 index_global（2009 起）
+    s = _read_xlsx_index("N225")
+    if s is None:
+        s = _read_global("N225")
+    if s is not None and len(s) > 500:
+        out["jp"] = dict(name="日股", items=[dict(key="N225", name="日经225",
+                                                  cycles=_standard_cycles(s, N225_BEARS, max_cycles=None))])
+
+    if os.path.exists(GOLD_BRENT_CSV):
+        g = pd.read_csv(GOLD_BRENT_CSV, parse_dates=["date"]).set_index("date").sort_index()
+        if "gold" in g.columns:
+            s = g["gold"].dropna()
+            out["cmdty"] = dict(name="商品", items=[dict(key="gold", name="COMEX 黄金",
+                                                          cycles=_standard_cycles(s, GOLD_BEARS, max_cycles=None))])
+    for cat in out.values():
+        for it in cat.get("items", []):
+            it["stats"] = _cycle_stats(it.get("cycles"))
+    return out
+
+
+def build_hero():
+    out = []
+    px = pd.read_csv(INDEX_CSV, parse_dates=["date"]).set_index("date").sort_index()
+    if "沪深300" in px.columns:
+        a = _hero_asset("hs300", "沪深300", px["沪深300"].replace(0.0, np.nan))
+        if a:
+            out.append(a)
+    fp = os.path.join(OVERSEAS_DIR, "K线导出_SPX_日线数据.xlsx")
+    if os.path.exists(fp):
+        d = pd.read_excel(fp)
+        dt = pd.to_datetime(d["交易时间"], errors="coerce")
+        v = pd.to_numeric(d["收盘价"], errors="coerce")
+        s = pd.DataFrame({"d": dt, "v": v}).dropna().sort_values("d").set_index("d")["v"]
+        s = s[s.index >= (s.index.max() - pd.DateOffset(years=30))]
+        a = _hero_asset("spx", "标普500", s)
+        if a:
+            out.append(a)
+    if os.path.exists(GOLD_BRENT_CSV):
+        g = pd.read_csv(GOLD_BRENT_CSV, parse_dates=["date"]).set_index("date").sort_index()
+        if "gold" in g.columns:
+            a = _hero_asset("gold", "COMEX 黄金", g["gold"].dropna())
+            if a:
+                out.append(a)
+        if "brent" in g.columns:
+            a = _hero_asset("brent", "布伦特原油", g["brent"].dropna())
+            if a:
+                out.append(a)
     return out
 
 
@@ -708,6 +1000,8 @@ def main():
         "extra": extra,
         "similarity": sim,
         "kline": _kl,
+        "hero": build_hero(),
+        "cycle_overlay": build_cycle_overlay(),
     }
     # 拆分：核心数据 data.js（首屏用） + K线 data-kline.js（按需懒加载）
     kline = payload.pop("kline", {})

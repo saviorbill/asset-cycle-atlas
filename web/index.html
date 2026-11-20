@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Where are we? · 金融资产周期研究</title>
 <link rel="preload" href="fonts/noto-serif-sc.woff2" as="font" type="font/woff2" crossorigin />
-<link rel="stylesheet" href="style.css?v=20261120a" />
+<link rel="stylesheet" href="style.css?v=20261121a" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 34 34'%3E%3Crect width='34' height='34' rx='7' fill='%230E1F35'/%3E%3Cpath d='M8 24 L14 15 L19 19 L27 9' stroke='%23C2A878' stroke-width='2.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='27' cy='9' r='2.2' fill='%23C2A878'/%3E%3C/svg%3E" />
 </head>
 <body data-view="intro">
@@ -67,16 +67,17 @@
   <section class="view active" id="view-intro">
     <div class="hero">
       <div class="hero-copy">
-        <div class="overline">金融资产周期研究 · 2005 — 2026</div>
+        <div class="overline">金融资产周期研究</div>
         <h1>History rhymes.<br>Read it.</h1>
         <div class="cn-title">从历史中探寻当下及未来</div>
-        <div class="sub">把每一轮牛熊的<b>宏观·中观·微观环境、宏大叙事、主线板块</b>对齐到同一条时间轴上，还原周期形成与反转的完整机制。</div>
+        <div class="sub">从资产每轮牛熊的<b>宏观-中观-微观</b>视角全方位切入，还原周期形成与反转的完整机制。</div>
         <div class="hero-actions">
           <a class="btn solid" href="#current">进入当前观察 <span class="arr">→</span></a>
         </div>
       </div>
       <div class="hero-figure">
-        <div class="hero-fig-head"><span class="t">上证指数</span><span class="r">2005 — 2026</span></div>
+        <div class="hero-fig-head"><span class="t" id="hero-name">沪深300</span><span class="r" id="hero-range"></span></div>
+        <div class="scope-chips hero-chips" id="hero-chips"></div>
         <div id="hero-chart"></div>
         <div class="hero-fig-foot"><span class="v" id="hero-val">—</span><span class="chg" id="hero-chg">—</span><span class="note">牛市金 · 熊市青</span></div>
       </div>
@@ -155,8 +156,26 @@
       <div class="page-meta" id="dash-asof"></div>
     </div>
 
-    <!-- 1. 综合建议 -->
+    <!-- 0. 资产走势 -->
     <div class="sec-head">
+      <div>
+        <div class="overline">Asset Cycles</div>
+        <h2 class="section-title">资产走势</h2>
+      </div>
+      <div class="sec-meta">每轮从 0 起算 · 横轴为该轮第 N 个交易日</div>
+    </div>
+    <div class="asset-flow">
+      <div class="af-list" id="af-list"></div>
+      <div class="af-main">
+        <div class="scope-chips af-items" id="af-items"></div>
+        <div class="chart" id="chart-cycle-overlay" style="height:400px"></div>
+        <div class="af-note" id="af-note"></div>
+        <div class="af-stats" id="af-stats"></div>
+      </div>
+    </div>
+
+    <!-- 1. 综合建议 -->
+    <div class="sec-head" id="conclusion-anchor">
       <div>
         <div class="overline">Recommendation</div>
         <h2 class="section-title">综合建议</h2>
@@ -166,6 +185,7 @@
     <div class="rec" id="conclusion"></div>
 
     <!-- 2. 两套系统：左历史统计 / 右机器学习 -->
+    <div id="a-only">
     <div class="rec-grid">
       <section class="rec-panel">
         <div class="rec-panel-h">
@@ -240,6 +260,7 @@
     </div>
     <div class="ind-sub"><b>全A 结构指标</b><span>2005 起 · 周频</span></div>
     <div class="ind-grid" id="ind-grid"></div>
+    </div>
   </section>
 
   <!-- ========== 4. 宏观环境 ========== -->
@@ -270,12 +291,12 @@
   </section>
 
   <div class="foot">
-    <b>数据说明</b>：指数 K 线为日线（上证 1990 起，沪深300 2005 起，创业板 2010 起）；全A 指标为周频（2016 起），指数 PE/PB/换手为周频（各指数自上市起，中证2000 暂未接入）；本地数据截至 <span id="foot-asof">—</span>，各指标实际截止日期见卡片右上角。历史规律不代表未来，仅供复盘研究，不构成投资建议。
+    历史规律不代表未来，仅供复盘研究，不构成投资建议。
   </div>
 </div>
 
 <script src="echarts.min.js"></script>
-<script src="data.js?v=20261118c"></script>
+<script src="data.js?v=20261121a"></script>
 <script src="cycle_stats.js?v=20261118a"></script>
 <script src="cycle_analysis.js?v=20261118b"></script>
 <script src="pullback_stats.js?v=20261118b"></script>
@@ -284,6 +305,6 @@
 <script src="hist_stats.js?v=20261119b"></script>
 <script src="models_extra.js?v=20261119a"></script>
 <script src="conclusion.js?v=20261119b"></script>
-<script src="app.js?v=20261119r"></script>
+<script src="app.js?v=20261120g"></script>
 </body>
 </html>

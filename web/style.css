@@ -217,17 +217,17 @@ body[data-view="cycle"] .scope-cycles { margin-left: 0; }
   padding: 26px 0 46px; margin-bottom: 8px;
   border-bottom: 1px solid var(--hairline-strong);
 }
-.hero-copy .overline { margin-bottom: 18px; }
+.hero-copy .overline { margin-bottom: 18px; font-size: 13px; letter-spacing: .22em; }
 .hero-copy h1 {
-  font-family: var(--serif); font-size: 48px; line-height: 1.08; font-weight: 600;
+  font-family: var(--serif); font-size: 58px; line-height: 1.06; font-weight: 600;
   letter-spacing: -.01em; color: var(--ink); margin-bottom: 20px;
 }
 .hero-copy h1 em { font-style: normal; color: var(--navy); }
 .hero-copy .cn-title {
-  font-family: var(--serif); font-size: 27px; font-weight: 600; color: var(--navy);
+  font-family: var(--serif); font-size: 32px; font-weight: 600; color: var(--navy);
   letter-spacing: .02em; margin-bottom: 14px;
 }
-.hero-copy .sub { font-size: 15.5px; color: var(--ink-2); max-width: 500px; line-height: 1.85; margin-bottom: 32px; }
+.hero-copy .sub { font-size: 16px; color: var(--ink-2); max-width: 520px; line-height: 1.85; margin-bottom: 32px; }
 .hero-copy .sub b { color: var(--ink); }
 .hero-actions { display: flex; gap: 12px; flex-wrap: wrap; }
 .btn {
@@ -250,7 +250,8 @@ body[data-view="cycle"] .scope-cycles { margin-left: 0; }
 .hero-fig-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 6px; }
 .hero-fig-head .t { font-family: var(--serif); font-size: 16px; font-weight: 600; color: var(--ink); }
 .hero-fig-head .r { font-size: 11.5px; letter-spacing: .16em; color: var(--faint); text-transform: uppercase; }
-#hero-chart { width: 100%; height: 340px; }
+#hero-chart { width: 100%; height: 320px; }
+.hero-chips { margin: 4px 0 6px; }
 .hero-fig-foot { display: flex; align-items: baseline; gap: 10px; margin-top: 6px; padding-top: 12px; border-top: 1px solid var(--hairline); }
 .hero-fig-foot .v { font-size: 24px; font-weight: 700; font-family: var(--sans); color: var(--ink); font-variant-numeric: tabular-nums; }
 .hero-fig-foot .chg { font-size: 13.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
@@ -1559,3 +1560,51 @@ body[data-view="cycle"] .scope-cycles { margin-left: 0; }
 #nsf-asof,
 #mp-asof,
 #macro-corr-asof { display: none !important; }
+
+/* ---- 资产走势 ---- */
+.asset-flow { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 32px; }
+.af-list { border-top: 1px solid var(--hairline); }
+.af-group {
+  margin: 16px 0 6px; font-size: 10.5px; letter-spacing: .16em;
+  color: var(--gold); font-weight: 600;
+}
+.af-item {
+  display: flex; justify-content: space-between; align-items: baseline;
+  padding: 9px 0; border-bottom: 1px solid var(--hairline);
+  font-size: 13px; color: var(--ink-2); cursor: pointer;
+}
+.af-item:hover { color: var(--navy); }
+.af-item.active { color: var(--ink); font-weight: 600; }
+.af-item.disabled { color: var(--faint); cursor: default; }
+.af-item em { font-style: normal; font-size: 11px; color: var(--faint); }
+.af-note { margin-top: 10px; font-size: 12px; color: var(--faint); line-height: 1.6; }
+.af-items { margin-bottom: 10px; }
+#conclusion-anchor { scroll-margin-top: 90px; }
+@media (max-width: 900px) {
+  .asset-flow { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .af-list { border-top: 0; }
+}
+
+.rec-placeholder {
+  padding: 26px 0 8px; color: var(--muted); font-size: 14px; line-height: 1.7;
+}
+.rec-placeholder b { color: var(--ink); font-weight: 600; }
+.rec-placeholder span { display: block; margin-top: 6px; font-size: 13px; color: var(--faint); }
+
+/* ---- 资产走势 · 统计表 ---- */
+.af-stats { margin-top: 16px; }
+.af-tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.af-tbl th {
+  font-size: 11px; font-weight: 600; color: var(--muted); letter-spacing: .06em;
+  padding: 8px 8px; border-bottom: 1px solid var(--hairline-strong); text-align: right;
+  white-space: nowrap;
+}
+.af-tbl th:nth-child(1), .af-tbl th:nth-child(2) { text-align: left; }
+.af-tbl td {
+  padding: 7px 8px; border-bottom: 1px solid var(--hairline);
+  text-align: right; color: var(--ink-2); white-space: nowrap;
+}
+.af-tbl td:nth-child(1), .af-tbl td:nth-child(2) { text-align: left; }
+.af-tbl tr.on td { background: var(--surface-2); color: var(--ink); font-weight: 600; }
+.af-tbl tr.on td:nth-child(2) { color: var(--navy); }
+.af-tbl .cat { color: var(--faint); font-size: 11.5px; }
