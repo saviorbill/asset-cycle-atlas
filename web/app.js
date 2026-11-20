@@ -342,12 +342,13 @@
     })();
   }
   const CUR_ASSETS = ['data-cur.js', 'data-overlay.js', 'state_score.js', 'hist_stats.js', 'ml_model.js', 'models_extra.js', 'conclusion.js'];
+  const TRENDS_ASSETS = ['data-overlay.js', 'conclusion.js', 'hist_stats.js', 'models_extra.js'];
   const HIST_ASSETS = ['data-overlay.js', 'data-hist.js', 'cycle_stats.js', 'cycle_analysis.js', 'pullback_stats.js'];
   const MACRO_ASSETS = ['data-macro.js', 'models_extra.js'];
   function withDeps(files, cb) { ensureAssets(files, function () { if (cb) cb(); }); }
 
   // ---------- 视图切换 ----------
-  let histInit = false, curInit = false, macroInit = false;
+  let histInit = false, curInit = false, macroInit = false, trendsInit = false;
   function go(view) {
     document.body.dataset.view = view;
     $$('.view').forEach(v => v.classList.remove('active'));
@@ -356,6 +357,10 @@
     const _assets = document.getElementById('nav-assets');
     if (_assets) _assets.classList.toggle('active', view === 'history' || view === 'cycle' || view === 'macro');
     $$('.menu-item[data-view="history"]').forEach(n => n.classList.toggle('active', view === 'history' || view === 'cycle'));
+    const _curNav = document.getElementById('nav-current');
+    if (_curNav) _curNav.classList.toggle('active', view === 'trends' || view === 'current');
+    $$('.menu-item[data-view="trends"]').forEach(n => n.classList.toggle('active', view === 'trends'));
+    $$('.menu-item[data-view="current"]').forEach(n => n.classList.toggle('active', view === 'current'));
     window.scrollTo({ top: 0, behavior: 'smooth' });
     if (view === 'history' && !histInit) {
       histInit = true;
@@ -378,6 +383,12 @@
       });
     }
     if (view === 'history') { syncCycleTabs(); renderCycleOverview(); }
+    if (view === 'trends' && !trendsInit) {
+      trendsInit = true;
+      withDeps(TRENDS_ASSETS, function () { setTimeout(renderTrends, 40); });
+    } else if (view === 'trends') {
+      withDeps(TRENDS_ASSETS, function () { setTimeout(renderTrends, 30); });
+    }
     if (view === 'current' && !curInit) {
       curInit = true;
       withDeps(CUR_ASSETS, function () { ensureKline(function () { setTimeout(renderCurrent, 40); }); });
@@ -2500,7 +2511,8 @@
   function renderCurrent() {
     const _pa = document.getElementById('dash-asof');
     if (_pa) _pa.innerHTML = '<span class="dot"></span>数据截至 <b>' + W.asof + '</b>';
-    renderCycleOverlay();
+    const aOnly = document.getElementById('a-only');
+    if (aOnly) aOnly.hidden = false;
     renderConclusion();
     renderNsf();
     renderHistStats();
@@ -2508,6 +2520,12 @@
     renderModels();
     renderLongIndicators();
     renderIndicators();
+  }
+  // 资产走势（独立子页）：只要周期叠加图，不加载 K 线与全A指标
+  function renderTrends() {
+    const _pa = document.getElementById('trends-asof');
+    if (_pa) _pa.innerHTML = '<span class="dot"></span>数据截至 <b>' + W.asof + '</b>';
+    renderCycleOverlay();
   }
   // ---------- 综合建议：结论先行，证据折叠，下方两种机制并排 ----------
   function renderConclusion() {
@@ -3607,7 +3625,7 @@
       else go('history');
       return true;
     }
-    if (['intro', 'history', 'current', 'macro', 'academy'].indexOf(h) >= 0) { go(h); return true; }
+    if (['intro', 'history', 'current', 'trends', 'macro', 'academy'].indexOf(h) >= 0) { go(h); return true; }
     return false;
   }
   window.addEventListener('hashchange', parseAppHash);
@@ -3620,7 +3638,7 @@
         if (W.cycles.some(c => c.id === id)) { e.preventDefault(); detailCycleId = id; histCycle = id; go('cycle'); }
         return;
       }
-      if (['intro', 'history', 'current', 'macro', 'academy'].indexOf(h) >= 0) { e.preventDefault(); go(h); }
+      if (['intro', 'history', 'current', 'trends', 'macro', 'academy'].indexOf(h) >= 0) { e.preventDefault(); go(h); }
     });
   });
 

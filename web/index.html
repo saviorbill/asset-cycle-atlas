@@ -23,7 +23,14 @@
 
   <nav class="topnav">
     <a class="tn-item active" data-view="intro">首页介绍</a>
-    <a class="tn-item" data-view="current">当前观察</a>
+    <div class="tn-item has-menu" id="nav-current">
+      当前观察 <span class="caret">▾</span>
+      <div class="menu">
+        <div class="menu-label">当前观察</div>
+        <a class="menu-item" data-view="trends">资产走势</a>
+        <a class="menu-item" data-view="current">综合建议</a>
+      </div>
+    </div>
     <div class="tn-item has-menu" id="nav-assets">
       资产周期 <span class="caret">▾</span>
       <div class="menu">
@@ -147,20 +154,20 @@
   </section>
 
   <!-- ========== 3. 当前观察 ========== -->
-  <section class="view" id="view-current">
+  <!-- ===== 当前观察 · 资产走势 ===== -->
+  <section class="view" id="view-trends">
     <div class="page-head">
       <div>
-        <div class="overline">Current Regime</div>
-        <h1 class="page-title">当前观察</h1>
+        <div class="overline">Asset Cycles</div>
+        <h1 class="page-title">资产走势</h1>
       </div>
-      <div class="page-meta" id="dash-asof"></div>
+      <div class="page-meta" id="trends-asof"></div>
     </div>
 
-    <!-- 0. 资产走势 -->
     <div class="sec-head">
       <div>
-        <div class="overline">Asset Cycles</div>
-        <h2 class="section-title">资产走势</h2>
+        <div class="overline">Cycle Overlay</div>
+        <h2 class="section-title">各轮周期走势</h2>
       </div>
       <div class="sec-meta">每轮从 0 起算 · 横轴为该轮第 N 个交易日</div>
     </div>
@@ -173,15 +180,20 @@
         <div class="af-stats" id="af-stats"></div>
       </div>
     </div>
+  </section>
 
-    <!-- 1. 综合建议 -->
-    <div class="sec-head" id="conclusion-anchor">
+  <!-- ===== 当前观察 · 综合建议 ===== -->
+  <section class="view" id="view-current">
+    <div class="page-head">
       <div>
         <div class="overline">Recommendation</div>
-        <h2 class="section-title">综合建议</h2>
+        <h1 class="page-title">综合建议</h1>
       </div>
-      <div class="sec-meta" id="concl-asof">打分卡 + 机器学习</div>
+      <div class="page-meta" id="dash-asof"></div>
     </div>
+
+    <!-- 1. 综合建议 -->
+    <span id="conclusion-anchor"></span>
     <div class="rec" id="conclusion"></div>
 
     <!-- 2. 两套系统：左历史统计 / 右机器学习 -->
@@ -296,7 +308,7 @@
 </div>
 
 <script src="echarts.min.js"></script>
-<script src="data.js?v=20261121a"></script>
-<script src="app.js?v=20261121a"></script>
+<script src="data.js?v=20261121c"></script>
+<script src="app.js?v=20261121c"></script>
 </body>
 </html>
