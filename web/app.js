@@ -2513,6 +2513,9 @@
     if (_pa) _pa.innerHTML = '<span class="dot"></span>数据截至 <b>' + W.asof + '</b>';
     const aOnly = document.getElementById('a-only');
     if (aOnly) aOnly.hidden = false;
+    // 综合建议页顶部的资产类别功能栏（与资产走势页共用同一份渲染）
+    const _D = W.cycle_overlay || {};
+    renderAfLists(_D, Object.keys(_D));
     renderConclusion();
     renderNsf();
     renderHistStats();
@@ -2589,21 +2592,11 @@
     AF_ITEM = item.key;
     return { cat: cat, item: item };
   }
-  function renderCycleOverlay() {
-    const el = document.getElementById('chart-cycle-overlay');
-    if (!el) return;
-    const D = W.cycle_overlay || {};
-    const keys = Object.keys(D);
-    if (!keys.length) { el.innerHTML = '<div class="desc">走势数据未生成</div>'; return; }
-    if (!D[AF_CAT]) AF_CAT = keys[0];
-    const aOnly = document.getElementById('a-only');
-    if (aOnly) aOnly.hidden = (AF_CAT !== 'a');
-    const cur = afCurrent();
-    if (!cur) return;
-    const cat = cur.cat, item = cur.item;
-
-    const list = document.getElementById('af-list');
-    if (list) {
+  // 资产类别功能栏：资产走势页 + 综合建议页 两处共用同一份渲染，任何一处点击都双向同步
+  function renderAfLists(D, keys) {
+    ['af-list', 'af-list-cur'].forEach(function (id) {
+      const list = document.getElementById(id);
+      if (!list) return;
       const mk = it => {
         const ok = keys.indexOf(it[0]) >= 0;
         return '<div class="af-item' + (ok ? '' : ' disabled') + (it[0] === AF_CAT ? ' active' : '') +
@@ -2622,7 +2615,23 @@
           renderConclusion();
         });
       });
-    }
+    });
+  }
+
+  function renderCycleOverlay() {
+    const el = document.getElementById('chart-cycle-overlay');
+    if (!el) return;
+    const D = W.cycle_overlay || {};
+    const keys = Object.keys(D);
+    if (!keys.length) { el.innerHTML = '<div class="desc">走势数据未生成</div>'; return; }
+    if (!D[AF_CAT]) AF_CAT = keys[0];
+    const aOnly = document.getElementById('a-only');
+    if (aOnly) aOnly.hidden = (AF_CAT !== 'a');
+    const cur = afCurrent();
+    if (!cur) return;
+    const cat = cur.cat, item = cur.item;
+
+    renderAfLists(D, keys);
 
     const chips = document.getElementById('af-items');
     if (chips) {

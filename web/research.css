@@ -298,3 +298,6 @@
 
 /* 综合建议：4 个数字的说明触发按钮 */
 .rec-guide-row { margin-top: 12px; }
+
+/* 综合建议页顶部的资产类别功能栏（与资产走势页完全同一套 chip） */
+.af-list-cur { margin: 4px 0 18px; }
