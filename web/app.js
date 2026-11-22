@@ -311,7 +311,7 @@
     if (_klineLoading) return;
     _klineLoading = true;
     var s2 = document.createElement('script');
-    s2.src = 'data-kline.js?v=20261118c';
+    s2.src = 'data-kline.js?v=20261122c';
     s2.async = true;
     s2.onload = function () {
       if (window.WAW_KLINE) W.kline = window.WAW_KLINE;
@@ -334,7 +334,7 @@
       if (i >= files.length) { if (cb) cb(); return; }
       const f = files[i++];
       const sc = document.createElement('script');
-      sc.src = f + '?v=20261121b';
+      sc.src = f + '?v=20261122c';
       sc.async = true;
       sc.onload = function () { _assetLoaded[f] = 1; next(); };
       sc.onerror = function () { _assetLoaded[f] = 1; next(); };
@@ -642,7 +642,7 @@
     const sliderH = 12, sliderBottom = 4, xRoom = 22;
     const volH = Math.max(22, Math.round(Math.min(38, H * 0.075)));
     const volTop = H - sliderBottom - sliderH - xRoom - volH;
-    const priceH = Math.max(120, volTop - top - 8);
+    const priceH = Math.max(120, volTop - top - 20);
     return { top, priceH, volTop, volH, sliderH, sliderBottom };
   }
 
@@ -677,7 +677,7 @@
     const GL = klineGridLayout(el);
     ch.setOption({
       textStyle: CHART_OPTS.textStyle, animation: false,
-      grid: [{ left: 58, right: 18, top: GL.top, height: GL.priceH }, { left: 58, right: 18, top: GL.volTop, height: GL.volH }],
+      grid: [{ left: 58, right: 84, top: GL.top, height: GL.priceH }, { left: 58, right: 84, top: GL.volTop, height: GL.volH }],
       axisPointer: { link: [{ xAxisIndex: 'all' }] },
       legend: { show: false },
       tooltip: {
@@ -719,7 +719,7 @@
         { name: '__dim__', type: 'line', xAxisIndex: 0, yAxisIndex: 0, data: [], showSymbol: false, silent: true, z: 18, lineStyle: { width: 0, opacity: 0 }, itemStyle: { opacity: 0 }, markArea: { silent: true, data: dimArea } },
         { name: '__hl__', type: 'line', xAxisIndex: 0, yAxisIndex: 0, data: [], showSymbol: false, silent: true, z: 16, lineStyle: { width: 0, opacity: 0 }, itemStyle: { opacity: 0 }, markArea: { silent: true, data: hlArea } },
         { name: '__anno__', type: 'line', xAxisIndex: 0, yAxisIndex: 0, data: [], showSymbol: false, silent: true, z: 1, lineStyle: { width: 0, opacity: 0 }, itemStyle: { opacity: 0 },
-          markLine: { silent: true, symbol: 'none', data: [{ yAxis: lastC, lineStyle: { color: C.accentD, type: 'dashed', width: 1.5 }, label: { show: !narrow, formatter: lastLabel + fmtNum(lastC, 2), position: 'insideEndTop', color: C.accentD, fontSize: 11.5, fontWeight: 'bold' } }] },
+          markLine: { silent: true, symbol: 'none', data: [{ yAxis: lastC, lineStyle: { color: C.accentD, type: 'dashed', width: 1.5 }, label: { show: !narrow, formatter: lastLabel + fmtNum(lastC, 0), position: 'end', distance: 6, color: C.accentD, fontSize: 11.5, fontWeight: 'bold' } }] },
           markArea: { silent: true, data: annoArea } },
       ],
     }, { notMerge: true });
@@ -938,7 +938,7 @@
         { name: '__dim__', type: 'line', data: [], showSymbol: false, silent: true, z: 18, lineStyle: { width: 0, opacity: 0 }, itemStyle: { opacity: 0 }, markArea: { silent: true, data: dimArea } },
         { name: '__hl__', type: 'line', data: [], showSymbol: false, silent: true, z: 16, lineStyle: { width: 0, opacity: 0 }, itemStyle: { opacity: 0 }, markArea: { silent: true, data: hlArea } },
         { name: '__anno__', type: 'line', data: [], showSymbol: false, silent: true, z: 1, lineStyle: { width: 0, opacity: 0 }, itemStyle: { opacity: 0 },
-          markLine: { silent: true, symbol: 'none', data: [{ yAxis: lastC, lineStyle: { color: C.accentD, type: 'dashed', width: 1.5 }, label: { show: !narrow, formatter: '最新 ' + fmtNum(lastC, 2), position: 'insideEndTop', color: C.accentD, fontSize: 11.5, fontWeight: 'bold' } }] },
+          markLine: { silent: true, symbol: 'none', data: [{ yAxis: lastC, lineStyle: { color: C.accentD, type: 'dashed', width: 1.5 }, label: { show: !narrow, formatter: '最新 ' + fmtNum(lastC, 0), position: 'end', distance: 6, color: C.accentD, fontSize: 11.5, fontWeight: 'bold' } }] },
           markArea: { silent: true, data: annoArea } },
       ],
     }, { notMerge: true });
@@ -1390,7 +1390,7 @@
         { name: idx, type: 'line', data: closes, showSymbol: false, connectNulls: false, lineStyle: { color: SERIES[0], width: 2 }, itemStyle: { color: SERIES[0] }, areaStyle: { color: 'rgba(14,31,53,.045)' } },
         { name: '__events__', type: 'scatter', data: evs, symbolSize: 9, z: 12, labelLayout: { hideOverlap: true }, emphasis: { itemStyle: { borderColor: '#fff', borderWidth: 2, shadowBlur: 8, shadowColor: 'rgba(0,0,0,.35)' }, label: { fontSize: 12, fontWeight: 'bold' } } },
         { name: '__anno__', type: 'line', data: [], showSymbol: false, silent: true, z: 1, lineStyle: { width: 0, opacity: 0 }, itemStyle: { opacity: 0 },
-          markLine: { silent: true, symbol: 'none', data: [{ yAxis: lastC, lineStyle: { color: C.accentD, type: 'dashed', width: 1.5 }, label: { show: !narrow, formatter: lastLabel, position: 'insideEndTop', color: C.accentD, fontSize: 11.5, fontWeight: 'bold' } }] },
+          markLine: { silent: true, symbol: 'none', data: [{ yAxis: lastC, lineStyle: { color: C.accentD, type: 'dashed', width: 1.5 }, label: { show: !narrow, formatter: lastLabel, position: 'end', distance: 6, color: C.accentD, fontSize: 11.5, fontWeight: 'bold' } }] },
           markArea: { silent: true, data: area } },
       ],
     }, { notMerge: true });
@@ -2845,7 +2845,7 @@
         '<div class="hs-det-in">' + hsDim('技术', x.tech_items) +
         hsDim('基本面', x.fund_items) + hsDim('情绪', x.sent_items) + '</div></td></tr>';
     });
-    return h + '</tbody></table>';
+    return '<div class="hs-tbl-wrap">' + h + '</tbody></table></div>';
   }
   function renderHistStats() {
     const H = W.hist_stats;

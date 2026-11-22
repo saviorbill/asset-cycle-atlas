@@ -946,7 +946,8 @@ def main():
         _last = _segs[-1][2]
         _v = v_of(_iname, _last)
         if _v:
-            _evs.append({"date": _last, "label": "今 " + str(int(_v)), "type": "now", "kind": "tp"})
+            # 「今」与图表上的「最新」markLine 重复，不再生成
+            pass
         # 该指数的数据起点
         if _iname in idx.columns:
             _col = idx[_iname].dropna()

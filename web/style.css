@@ -1423,7 +1423,8 @@ body[data-view="cycle"] .scope-cycles { margin-left: 0; }
 }
 
 /* ---- 历史统计表 ---- */
-.hs-tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 4px; }
+.hs-tbl-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; margin-top: 4px; }
+.hs-tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .hs-tbl th {
   font-size: 12px; font-weight: 600; color: var(--muted); letter-spacing: .06em;
   padding: 8px 6px; border-bottom: 1px solid var(--hairline-strong); text-align: right;
