@@ -242,3 +242,56 @@
 .ts-stats .rec-stat b,
 .trend-scenario-head .rec-stat b { font-size: 25px; }
 .hs-tbl .hs-score { font-size: 12.5px; font-weight: 600; }
+
+/* A/B 面板「指标说明 / 模型说明」展开收起 */
+.rph-r { display: flex; align-items: center; gap: 12px; }
+.guide-btn {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 9px;
+  border: 1px solid var(--hairline);
+  border-radius: 3px;
+  background: rgba(255, 255, 255, .55);
+  font-family: var(--sans);
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .15s, border-color .15s, color .15s;
+}
+.guide-btn:hover { background: #fff; border-color: var(--gold-2); color: var(--navy); }
+.guide-btn i { font-style: normal; font-size: 9px; line-height: 1; transition: transform .16s; }
+.guide-btn[aria-expanded="true"] { background: var(--navy); border-color: var(--navy); color: #fff; }
+.guide-btn[aria-expanded="true"] i { transform: rotate(180deg); }
+
+.panel-guide {
+  margin: 4px 0 16px;
+  padding: 14px 16px;
+  background: var(--surface-2);
+  border: 1px solid var(--hairline);
+  border-radius: 3px;
+  font-size: 12.5px;
+  line-height: 1.75;
+  color: var(--muted);
+}
+.panel-guide dl {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 7px 16px;
+  margin: 0;
+}
+.panel-guide dt { color: var(--ink); font-weight: 600; white-space: nowrap; }
+.panel-guide dd { margin: 0; }
+.panel-guide dd b { color: var(--ink-2); font-weight: 600; }
+.panel-guide .pg-note {
+  margin: 12px 0 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--hairline);
+  font-size: 11.5px;
+  color: var(--faint);
+  line-height: 1.7;
+}
+@media (max-width: 720px) {
+  .panel-guide dl { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .panel-guide dt { margin-top: 8px; }
+}

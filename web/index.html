@@ -6,7 +6,7 @@
 <title>Where are we? · 金融资产周期研究</title>
 <link rel="preload" href="fonts/noto-serif-sc.woff2" as="font" type="font/woff2" crossorigin />
 <link rel="stylesheet" href="style.css?v=20261122h" />
-<link rel="stylesheet" href="research.css?v=20261122f" />
+<link rel="stylesheet" href="research.css?v=20261122x" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 34 34'%3E%3Crect width='34' height='34' rx='7' fill='%230E1F35'/%3E%3Cpath d='M8 24 L14 15 L19 19 L27 9' stroke='%23C2A878' stroke-width='2.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='27' cy='9' r='2.2' fill='%23C2A878'/%3E%3C/svg%3E" />
 </head>
 <body data-view="intro">
@@ -80,7 +80,8 @@
         <div class="cn-title">从历史中探寻当下及未来</div>
         <div class="sub">从资产每轮牛熊的<b>宏观-中观-微观</b>视角全方位切入，还原周期形成与反转的完整机制。</div>
         <div class="hero-actions">
-          <a class="btn solid" href="#current">进入当前观察 <span class="arr">→</span></a>
+          <a class="btn solid" href="#trends">资产走势 <span class="arr">→</span></a>
+          <a class="btn ghost" href="#current">综合建议 <span class="arr">→</span></a>
         </div>
       </div>
       <div class="hero-figure">
@@ -213,7 +214,23 @@
         <section class="rec-panel">
           <div class="rec-panel-h">
             <div class="rph-t"><span class="rph-n">A</span>历史统计</div>
-            <div class="rph-s" id="hist-asof"></div>
+            <div class="rph-r">
+              <button type="button" class="guide-btn" data-guide="A" aria-expanded="false">指标说明<i>▾</i></button>
+              <div class="rph-s" id="hist-asof"></div>
+            </div>
+          </div>
+          <div class="panel-guide" id="guide-A" hidden>
+            <dl>
+              <dt>阶段</dt><dd>该指数当前处于牛市还是熊市（按牛熊周期划分）。</dd>
+              <dt>技术</dt><dd>趋势 / 位置 / 量价 / 动量九项打分。分数越高代表<b>越超跌、越极端</b>，不是越强。</dd>
+              <dt>基本面</dt><dd>估值（PE / PB）与财务（营收增速、毛利率、负债率、每股现金流、股息率）。分数越高越便宜。</dd>
+              <dt>情绪</dt><dd>换手率、成交占比、两融等情绪分位。分数越高代表市场越冷清。</dd>
+              <dt>10日 / 20日</dt><dd>历史上与当前状态最相似的交易日，其后 10 / 20 个交易日的上涨概率；下方小字是独立片段数（样本不重叠的段数），段数越多越可信。</dd>
+              <dt>模型20</dt><dd>机器学习给出的「20 日上行估计」百分比，与右侧 B 面板同一来源。</dd>
+              <dt>综合</dt><dd>综合分 = 65% × 规则分（10/20 日收缩胜率加权）+ 35% × 模型 20 日上行估计，用于排序。</dd>
+              <dt>倾向</dt><dd>综合以上维度得出的操作倾向：偏买入 / 观察 / 偏减仓。</dd>
+            </dl>
+            <p class="pg-note">分数区间 0–100，均为「历史分位」而非绝对好坏：技术、估值、情绪三类都是分数越高越极端。</p>
           </div>
           <div class="ml-tabs">
             <button class="ml-tab on" data-htab="idx">指数 <em>8</em></button>
@@ -226,7 +243,21 @@
         <section class="rec-panel">
           <div class="rec-panel-h">
             <div class="rph-t"><span class="rph-n">B</span>机器学习机制</div>
-            <div class="rph-s" id="ml-asof"></div>
+            <div class="rph-r">
+              <button type="button" class="guide-btn" data-guide="B" aria-expanded="false">模型说明<i>▾</i></button>
+              <div class="rph-s" id="ml-asof"></div>
+            </div>
+          </div>
+          <div class="panel-guide" id="guide-B" hidden>
+            <dl>
+              <dt>未来 20 日上行估计</dt><dd>模型估计未来 20 个交易日收盘价高于今天的概率。<b>不是实际胜率</b>，只适合横向比较不同指数的相对强弱。</dd>
+              <dt>20 日中位</dt><dd>相似历史样本在后 20 个交易日收益的中位数，代表「典型情况」。</dd>
+              <dt>下行 P10</dt><dd>相似样本的第 10 百分位收益，代表偏悲观情况（约 10% 的样本比它更差）。</dd>
+              <dt>上行 P90</dt><dd>相似样本的第 90 百分位收益，代表偏乐观情况（约 10% 的样本比它更好）。</dd>
+              <dt>扇形图</dt><dd>中间深色线是<b>中位路径</b>，浅色区间是 <b>P10–P90 分位带</b>；越往右越宽，说明时间越远、不确定性越大。</dd>
+              <dt>下方表格</dt><dd>按综合分排序的指数（或板块），给出「10 日中位 / 20 日上行 / 20 日中位」，用于同一时点的横向对比。</dd>
+            </dl>
+            <p class="pg-note">模型基于历史相似样本的统计分布，不预测单一路径；样本重叠时独立性会下降，仅供参考。</p>
           </div>
           <div id="ml-body"></div>
         </section>
@@ -322,6 +353,6 @@
 <script src="echarts.min.js"></script>
 <script src="data.js?v=20261122c"></script>
 <script src="trend_scenario.js?v=20261122c"></script>
-<script src="app.js?v=20261122u"></script>
+<script src="app.js?v=20261122x"></script>
 </body>
 </html>

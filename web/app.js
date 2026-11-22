@@ -3566,6 +3566,17 @@
     return false;
   }
   window.addEventListener('hashchange', parseAppHash);
+  // 面板「指标说明 / 模型说明」展开收起
+  $$('[data-guide]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var g = document.getElementById('guide-' + btn.dataset.guide);
+      if (!g) return;
+      var willOpen = g.hidden;
+      g.hidden = !willOpen;
+      btn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+    });
+  });
+
   // 锚点链接（进入当前观察 / 股票卡 / 侧链）直接绑定，确保点击必跳
   $$('a[href^="#"]').forEach(function (a) {
     a.addEventListener('click', function (e) {
