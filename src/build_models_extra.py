@@ -228,7 +228,10 @@ def build_transition(series):
     d = pd.DataFrame(rows)
     if d.empty:
         return None
-    d["t_pct"] = d["elapsed"] / d.groupby("market")["dur"].transform("max").clip(lower=60)
+    # 与 stage_features 统一：用该市场历史熊市的「中位时长」归一化。
+    # 原来除以「最长熊市」，t_pct 永远 <=1，导致 100-200%/>200% 两个桶恒为空、曲线无法单调。
+    _med = d.groupby("market")["dur"].transform("median").clip(lower=60)
+    d["t_pct"] = d["elapsed"] / _med
     bins = [0, 0.25, 0.5, 0.75, 1.0, 2.0, 99]
     d["bucket"] = pd.cut(d["t_pct"], bins=bins, labels=["<25%", "25–50%", "50–75%",
                                                         "75–100%", "100–200%", ">200%"])
@@ -357,14 +360,16 @@ def build_bayes(a_series, o_series):
 def build_ensemble(hist, ml, rank, trans, surv):
     parts = {}
     if ml and ml.get("pred"):
-        p = ml["pred"]["60"]
-        parts["模型中位"] = float(np.clip((p["p50"] + 10) / 40 * 100, 0, 100))
-    if rank and rank.get("sectors"):
-        s = next((x["score"] for x in rank["sectors"] if x["name"] == "创业板指"), None)
-        # 板块表没有创业板，用有色金属/电子等替代不合适，跳过
-        if s is None:
-            s = float(np.mean([x["score"] for x in rank["sectors"][:5]]))
-        parts["横截面排名"] = float(np.clip(s, 0, 100))
+        # 面板其余指标都是 20 日口径，这里同步用 20 日；把 -10%~+10% 映射到 0~100（0% → 50）
+        p = ml["pred"].get("20") or ml["pred"].get("60")
+        if p:
+            parts["模型中位"] = float(np.clip((p["p50"] + 10) / 20 * 100, 0, 100))
+    if rank and rank.get("indices"):
+        items = [x for x in rank["indices"] if x.get("score") is not None]
+        if items:
+            # 取当前横截面排名最高的指数（与页面模型面板的焦点指数一致）
+            top = max(items, key=lambda x: x["score"])
+            parts["横截面排名"] = float(np.clip(top["score"], 0, 100))
     if trans and trans.get("p_bull_20") is not None:
         parts["转牛概率"] = float(np.clip(trans["p_bull_20"] * 100, 0, 100))
     if surv and surv.get("median_remaining"):
