@@ -361,8 +361,11 @@ def load_indicators():
         print("  未找到 2005–2015 重建文件，指标仍从 2016 起")
     m = m.sort_values("date").reset_index(drop=True)
 
-    mg = pd.read_csv(MARGIN_CSV, usecols=["trade_date", "rzye"])
-    mg["trade_date"] = pd.to_datetime(mg["trade_date"].astype(str), format="%Y%m%d")
+    from margin_quality import filter_complete_margin
+    mg = pd.read_csv(MARGIN_CSV, usecols=["trade_date", "exchange_id", "rzye"])
+    # 上游可能先发布单交易所记录；残缺的日期不能合计成全市场融资余额。
+    mg = filter_complete_margin(mg)
+    mg["trade_date"] = pd.to_datetime(mg["trade_date"].astype(str).str.replace("-", "", regex=False).str.slice(0, 8), format="%Y%m%d")
     mg = mg.groupby("trade_date")["rzye"].sum().reset_index()  # 元
     mg["rzye_yi"] = mg["rzye"] / 1e8
     mgm = mg.merge(m[["date", "total_mv"]], left_on="trade_date", right_on="date", how="inner")
@@ -946,8 +949,7 @@ def main():
         _last = _segs[-1][2]
         _v = v_of(_iname, _last)
         if _v:
-            # 「今」与图表上的「最新」markLine 重复，不再生成
-            pass
+            pass  # 「今」与图表「最新」重复，不生成
         # 该指数的数据起点
         if _iname in idx.columns:
             _col = idx[_iname].dropna()

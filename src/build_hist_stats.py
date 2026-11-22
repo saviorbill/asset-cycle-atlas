@@ -7,7 +7,7 @@
   情绪   —— 冷清还是拥挤（换手 / 成交占比 / 两融变化）
 
 所有维度统一朝向：**分数越高 = 历史上越极端（跌得越深 / 越便宜 / 越冷清）**。
-另外给每个资产 5 / 20 / 60 日的"同档胜率"（回撤 ±7.5pp 的历史条件分布），
+另外给每个资产 10 / 20 日的"同档胜率"（多特征历史相似日），
 带无条件基准和独立片段数。
 
 指数 8 个，申万一级 31 个，分两张表。
@@ -41,7 +41,7 @@ IDX_DESC = {
     "创业板指": "成长 · 高 beta", "科创50": "硬科技 · 高 beta",
 }
 BUCKET = 0.075          # 同档：回撤幅度 ±7.5pp
-HORIZONS = [5, 20, 60]
+HORIZONS = [10, 20]
 MIN_HIST = 400          # 历史样本少于这么多天就不打分
 THR = 0.20
 MIN_BEAR = 60
@@ -372,7 +372,7 @@ def build_indices():
 
         feats = feat_matrix(s)
         win = {("d%d" % h): similar_bucket(s, feats, h) for h in HORIZONS}
-        w60 = win.get("d60")
+        w60 = win.get("d20")
 
         rows.append(dict(
             name=name, desc=IDX_DESC.get(name, ""), kind=k,
@@ -453,7 +453,7 @@ def build_indices():
 
         feats = feat_matrix(s)
         win = {("d%d" % h): similar_bucket(s, feats, h) for h in HORIZONS}
-        w60 = win.get("d60")
+        w60 = win.get("d20")
 
         rows.append(dict(
             name=name, desc=IDX_DESC.get(name, ""), kind=k,
@@ -553,7 +553,7 @@ def build_sectors():
         sent, sent_d = score_of(sent_items)
         feats = feat_matrix(s, amount=amt)
         win = {("d%d" % h): similar_bucket(s, feats, h) for h in HORIZONS}
-        w60 = win.get("d60")
+        w60 = win.get("d20")
 
         rows.append(dict(
             name=str(g["name"].iloc[-1]), code=code, kind=k,
@@ -586,7 +586,7 @@ def main():
         print("  %-6s 阶段%-3s 技术%4s 基本面%4s 情绪%4s 60日%s %s" % (
             r["name"], "熊" if r["kind"] == "bear" else "牛",
             r["tech"], r["fund"], r["sent"],
-            ("%.0f%%" % r["win"]["d60"]["win"]) if r["win"]["d60"] and r["win"]["d60"].get("ok") else "—",
+            ("%.0f%%" % r["win"]["d20"]["win"]) if r["win"]["d20"] and r["win"]["d20"].get("ok") else "—",
             r["tendency"]))
 
 

@@ -132,7 +132,8 @@ a { color: inherit; text-decoration: none; }
 body[data-view="intro"] .scope-bar,
 body[data-view="academy"] .scope-bar,
 /* 当前观察不再需要基准指数切换：状态打分与国家队都固定口径 */
-body[data-view="current"] .scope-bar { display: none; }
+body[data-view="current"] .scope-bar,
+body[data-view="trends"] .scope-bar { display: none; }
 /* A 股复盘 / 单轮叙事：指数已下放到主图工具栏，顶部只保留牛熊周期 */
 body[data-view="history"] .scope-group-index,
 body[data-view="cycle"] .scope-group-index { display: none; }
@@ -720,6 +721,8 @@ body[data-view="cycle"] .scope-cycles { margin-left: 0; }
 @media (max-width: 920px) {
   .main { margin-left: 0; padding: 120px 16px 60px; }
   .topnav { position: fixed; left: 0; right: 0; top: 62px; background: var(--bg); padding: 6px 16px; border-bottom: 1px solid var(--hairline); overflow-x: auto; }
+  .topnav .menu { position: fixed; top: 105px; left: 16px; right: 16px; min-width: 0; }
+  .topnav .menu.sub { top: 105px; left: 32px; right: 32px; }
   .brand { height: 62px; }
   .brand .tag { display: none; }
   .scope-bar { top: 105px; gap: 6px 20px; padding: 8px 0; margin-bottom: 24px; }
@@ -762,8 +765,9 @@ body[data-view="cycle"] .scope-cycles { margin-left: 0; }
   .tl-count { margin-left: 0; }
   .tl-range { font-size: 11px; }
   .tl-spark svg { height: 46px; }
-  .ind-grid { grid-template-columns: 1fr; gap: 22px; }
-  .ind-grid.three { grid-template-columns: 1fr; }
+  .ind-grid { grid-template-columns: minmax(0, 1fr); gap: 22px; }
+  .ind-grid.three { grid-template-columns: minmax(0, 1fr); }
+  .ind-grid .chart-card { min-width: 0; }
   .ind-grid + .ind-sub { margin-top: 28px; }
   .chart-toolbar .seg { flex: 0 1 auto; flex-wrap: wrap; max-width: 100%; }
   .chart-toolbar { gap: 6px; }

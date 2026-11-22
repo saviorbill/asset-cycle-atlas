@@ -311,7 +311,7 @@
     if (_klineLoading) return;
     _klineLoading = true;
     var s2 = document.createElement('script');
-    s2.src = 'data-kline.js?v=20261122c';
+    s2.src = 'data-kline.js?v=20261118c';
     s2.async = true;
     s2.onload = function () {
       if (window.WAW_KLINE) W.kline = window.WAW_KLINE;
@@ -334,15 +334,15 @@
       if (i >= files.length) { if (cb) cb(); return; }
       const f = files[i++];
       const sc = document.createElement('script');
-      sc.src = f + '?v=20261122c';
+      sc.src = f + '?v=20261122a';
       sc.async = true;
       sc.onload = function () { _assetLoaded[f] = 1; next(); };
       sc.onerror = function () { _assetLoaded[f] = 1; next(); };
       document.head.appendChild(sc);
     })();
   }
-  const CUR_ASSETS = ['data-cur.js', 'data-overlay.js', 'state_score.js', 'hist_stats.js', 'ml_model.js', 'models_extra.js', 'conclusion.js'];
-  const TRENDS_ASSETS = ['data-overlay.js', 'conclusion.js', 'hist_stats.js', 'models_extra.js'];
+  const CUR_ASSETS = ['data-cur.js', 'data-overlay.js', 'state_score.js', 'hist_stats.js', 'ml_model.js', 'models_extra.js', 'conclusion.js', 'recommendations.js'];
+  const TRENDS_ASSETS = ['data-overlay.js', 'pattern_scenarios.js', 'conclusion.js', 'hist_stats.js', 'models_extra.js'];
   const HIST_ASSETS = ['data-overlay.js', 'data-hist.js', 'cycle_stats.js', 'cycle_analysis.js', 'pullback_stats.js'];
   const MACRO_ASSETS = ['data-macro.js', 'models_extra.js'];
   function withDeps(files, cb) { ensureAssets(files, function () { if (cb) cb(); }); }
@@ -2527,123 +2527,37 @@
     if (_pa) _pa.innerHTML = '<span class="dot"></span>数据截至 <b>' + W.asof + '</b>';
     renderCycleOverlay();
   }
-  // ---------- 综合建议：结论先行，证据折叠，下方两种机制并排 ----------
+  // ---------- 综合建议：结论先行，下方恢复原两种评价机制 ----------
   function renderConclusion() {
     const el = document.getElementById('conclusion');
     if (!el) return;
     if (typeof AF_CAT !== 'undefined' && AF_CAT !== 'a') {
       const nm = ((W.cycle_overlay || {})[AF_CAT] || {}).name || '该资产';
       el.innerHTML = '<div class="rec-placeholder"><b>' + nm + '</b> 综合建议暂未上线。' +
-        '<span>目前只有 A股 有完整的历史统计与模型打分；' + nm +
-        ' 的周期走势已在上面给出，建议框架仍在搭建中。</span></div>';
-      const ae0 = document.getElementById('concl-asof');
-      if (ae0) ae0.textContent = '暂未上线';
+        '<span>当前仅开放 A 股指数与板块建议。</span></div>';
       return;
     }
-    const C = W.conclusion;
-    if (!C) { el.innerHTML = '<div class="desc">结论未生成，运行 python3 src/build_conclusion.py</div>'; return; }
-    const asofEl = document.getElementById('concl-asof');
-    if (asofEl) asofEl.textContent = '截至 ' + C.asof;
-
-    const S = C.stage, Wn = C.win || {}, R = C.rally || {}, B = C.best;
-    const bulls = (C.indices || []).filter(x => x.kind === 'bull');
-    const pct = v => (v == null ? '—' : v + '%');
-
-    // 1) 牛熊
-    let A = C.n_bear + '/' + C.n_total + ' 个指数已从高点回落 20% 以上，进入熊市';
-    if (bulls.length) {
-      const b = bulls[0];
-      A += '；只有' + b.name + '还没破线 —— 距 ' + b.from_date + ' 的低点仍 ' +
-        fmtSigned(b.chg, 0, '%') + '，但已从高点回撤 ' + fmtSigned(b.dd250, 1, '%') +
-        '，属于牛市中的深度回调';
+    const C = W.conclusion || {};
+    const R = W.recommendations || { summary: {}, indices: [], sectors: [] };
+    const S = R.summary || {};
+    const top = (R.indices || [])[0];
+    if (!top) {
+      el.innerHTML = '<div class="rec-stance watch">观察</div><div class="rec-sub">本期没有指数达到观察线，暂不新增指数观察项。</div>';
+      return;
     }
-    // 2) 阶段
-    const Bt = '熊市' + S.label + ' —— 时间走完 <b>' + pct(S.time_pct) + '</b>（历史上 ' +
-      pct(S.time_pct) + ' 的熊市比这次更短），空间走完 <b>' + pct(S.space_pct) +
-      '</b>（' + pct(S.space_pct) + ' 的熊市跌得比这次更浅）';
-    // 3) 胜率
-    const Ct = '30 日 <b>' + pct(Wn.w30) + '</b> / 60 日 <b>' + pct(Wn.w60) +
-      '</b>（' + (C.picks || []).length + ' 个指数按独立片段加权）；分指数从 ' +
-      pct(Wn.lo30) + ' 到 ' + pct(Wn.hi30) + '，只有 ' + (B ? B.name : '—') + ' 明显高过一半';
-    // 4) 推荐
-    let D = B ? ('<b>' + B.name + '</b>：同档 30 日胜率 ' + pct(B.w30) + '、中位 ' +
-      fmtSigned(B.m30, 1, '%') + '；但只有 ' + B.s30 + ' 段独立样本，误差约 ±18pp。' +
-      '求稳选沪深300（51%，23 段）') : '样本不足';
-    // 5) 熊市规律：本轮谁跌得最深 + 历史上"跌得深＝弹得快"是否成立
-    const bears = (C.indices || []).filter(x => x.kind === 'bear').sort((a, b) => a.chg - b.chg);
-    let E = '';
-    if (bears.length) {
-      E += '本轮跌得最深的是 <b>' + bears[0].name + ' ' + fmtSigned(bears[0].chg, 1, '%') + '</b>' +
-        (bears[1] ? '，其次是' + bears[1].name + ' ' + fmtSigned(bears[1].chg, 1, '%') : '') + '；';
-    }
-    E += '历史上 ' + C.bear_n + ' 轮熊市里，跌得最深的只有 <b>' + C.bear_hit +
-      '</b> 轮反弹最强（排名相关 ' + fmtNum(C.bear_rho, 2) + '）——"跌得多就弹得快"不成立，' +
-      '别把跌幅当反弹的领先指标';
-    // 6) 反弹定义
-    const F = '业内没有统一标准，常用的口径是 <b>≥10% 且持续 ≥2 周</b>；' +
-      '<b>≥20%</b> 按本页定义已经算熊转牛，不再叫反弹。本地 ' + R.n +
-      ' 次熊市反弹里，≥10% 的只占 ' + pct(R.share10) + '（中位 ' + R.med_gain + '% / ' + R.med_days + ' 日）';
-
-    const M = C.mix;
-    const HEAD = { '可分批买入': '分批建仓', '可小仓位试探': '轻仓试探', '等待，暂不加仓': '观望' };
-    const head = HEAD[C.stance] || C.stance;
-
-    let ledger = '';
-    if (M) {
-      const agree = M.agree;
-      ledger = '规则打分 <b>' + fmtNum(M.rule, 0) + '</b>，模型给出 <b>' + fmtNum(M.ml, 0) +
-        '%</b> 的未来 60 日上涨概率，' +
-        (agree ? '方向一致' : '两者分歧，按保守的一方执行') + '。' +
-        (M.combined >= 60 ? '合成分 <b>' + fmtNum(M.combined, 0) + '</b>，可以分批，但不宜一次打满。'
-          : M.combined >= 52 ? '合成分 <b>' + fmtNum(M.combined, 0) + '</b>，先小仓位试。'
-            : '合成分 <b>' + fmtNum(M.combined, 0) + '</b>，还不到建仓线。');
-    } else {
-      ledger = '模型未生成，以下仅为打分卡结论。';
-    }
-
+    const c = top.components || {};
     const stats = [
-      ['合成分', M ? fmtNum(M.combined, 0) : '—', M ? '<small>/100</small>' : ''],
-      ['打分卡', M ? fmtNum(M.rule, 0) : (B ? fmtNum(B.a60, 0) : '—'), '<small>/100</small>'],
-      ['模型', M ? fmtNum(M.ml, 0) : '—', '<small>%</small>'],
-      ['置信度', M ? M.confidence : '—', ''],
+      ['最高综合分 · ' + top.name, fmtNum(top.score, 1), '<small>/100</small>'],
+      ['10／20 日规则分', fmtNum(c.rule, 1), '<small>/100</small>'],
+      ['模型 20 日上行估计', c.model20 == null ? '—' : fmtNum(c.model20, 1), '<small>%</small>'],
+      ['置信度', top.confidence || '低', ''],
     ].map(s => '<div class="rec-stat"><span>' + s[0] + '</span><b>' + s[1] + s[2] + '</b></div>').join('');
-
-    // ---- 板块建议：技术/基本面/情绪/同形态胜率/模型排名 的等权合成
-    let secHtml = '';
-    const secs = (W.hist_stats && W.hist_stats.sectors) || [];
-    if (secs.length) {
-      const rkS = {};
-      const rrS = ((W.models_extra && W.models_extra.rank) || {}).sectors || [];
-      rrS.forEach(function (x) { rkS[x.name] = x.score; });
-      const scored = secs.map(function (x) {
-        const w = (x.win || {}).d60 || {};
-        const parts = [x.tech, x.fund, x.sent, w.ok ? w.win : null, rkS[x.name]];
-        const vals = parts.filter(function (v) { return v != null; });
-        return { name: x.name, score: vals.length ? vals.reduce(function (a, b) { return a + b; }, 0) / vals.length : null,
-          w: w.ok ? w.win : null, seg: w.seg, tendency: x.tendency };
-      }).filter(function (x) { return x.score != null && x.w != null && x.seg >= 8 && x.tendency === '偏买入'; })
-        .sort(function (a, b) { return b.score - a.score; });
-      if (scored.length) {
-        const nBuy = secs.filter(function (x) { return x.tendency === '偏买入'; }).length;
-        const top = scored.slice(0, 4).map(function (x) {
-          return '<span class="rs-item" title="合成分 ' + fmtNum(x.score, 1) +
-            ' · 同形态 60 日胜率 ' + fmtNum(x.w, 0) + '%（' + x.seg + ' 段）">' +
-            '<b>' + x.name + '</b><em>' + fmtNum(x.score, 0) + '</em></span>';
-        }).join('');
-        secHtml = '<div class="rec-sectors"><span class="ev-k">板块</span>' + top +
-          '<span class="rs-meta">' + nBuy + '/' + secs.length + ' 个板块偏买入 · 分数为技术/基本面/情绪/胜率/模型排名等权</span></div>';
-      }
-    }
-
     el.innerHTML =
-      '<div class="rec-stance ' + (C.tone || 'neutral') + '">' + head + '</div>' +
-      '<div class="rec-sub">熊市' + S.label +
-      '<span class="dim"> · </span>' + C.n_bear + '/' + C.n_total + ' 指数处于熊市' +
-      '<span class="dim"> · </span>首选 <b>' + (B ? B.name : '—') + '</b>' +
-      '<span class="dim"> · </span>未来 30–60 个交易日</div>' +
-      '<div class="rec-stats">' + stats + '</div>' +
-      '<div class="rec-line">' + ledger + '</div>' +
-      secHtml;
+      '<div class="rec-stance watch">结构观察</div>' +
+      '<div class="rec-sub">熊市' + (S.stage || (C.stage || {}).label || '—') +
+        '<span class="dim"> · </span>' + (S.n_bear == null ? C.n_bear : S.n_bear) + '/' + (S.n_total == null ? C.n_total : S.n_total) + ' 指数处于熊市' +
+        '<span class="dim"> · </span>' + (S.index_buy || 0) + ' 个指数、' + (S.sector_buy || 0) + ' 个板块偏买入</div>' +
+      '<div class="rec-stats">' + stats + '</div>';
   }
 
   // ---------- 资产走势：按资产类别 + 具体标的 ----------
@@ -2714,11 +2628,14 @@
       });
     }
 
+    const n = (item.cycles || []).length;
+    const title = document.getElementById('af-title');
+    const cycleCount = document.getElementById('af-cycle-count');
+    if (title) title.textContent = item.name;
+    if (cycleCount) cycleCount.textContent = n + ' 轮牛熊';
     const note = document.getElementById('af-note');
     if (note) {
-      const n = (item.cycles || []).length;
-      note.innerHTML = item.name + ' · ' + n + ' 轮牛熊。每条线从该轮起点归零，横轴是第几个交易日，' +
-        '纵轴是相对起点的累计收益。红色为本轮。';
+      note.innerHTML = '每条线从该轮起点归零，横轴是第几个交易日，纵轴是相对起点的累计收益。红色为本轮。';
     }
 
     const ch = charts['chart-cycle-overlay'] || echarts.init(el);
@@ -2740,7 +2657,7 @@
     });
     ch.setOption({
       animation: false,
-      grid: { left: 8, right: 18, top: 34, bottom: 6, containLabel: true },
+      grid: { left: 8, right: 18, top: 58, bottom: 12, containLabel: true },
       legend: { top: 0, left: 0, itemWidth: 14, itemHeight: 2, itemGap: 14,
         textStyle: { color: '#6B6558', fontSize: 11.5 } },
       tooltip: {
@@ -2788,11 +2705,17 @@
             '<td>' + fmtSigned(st.med_end, 0, '%') + '</td></tr>';
         });
       });
-      stBox.innerHTML = '<table class="af-tbl"><thead><tr>' +
+      const detailsOpen = stBox.querySelector('details') && stBox.querySelector('details').open;
+      stBox.innerHTML = '<details class="af-collapse"' + (detailsOpen ? ' open' : '') + '>' +
+        '<summary><span>各资产周期统计</span><em>点击展开 / 收起</em></summary>' +
+        '<div class="af-collapse-body"><div class="af-table-wrap"><table class="af-tbl"><thead><tr>' +
         '<th>类别</th><th>标的</th><th>轮数</th><th>中位时长</th><th>最长</th>' +
-        '<th>中位最大涨幅</th><th>中位终值</th></tr></thead><tbody>' + rows + '</tbody></table>' +
+        '<th>中位最大涨幅</th><th>中位终值</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
         '<div class="af-note">时长按 244 个交易日/年折算；最大涨幅 = 该轮内相对起点的最高涨幅；' +
-        '终值 = 该轮结束时相对起点的收益。样本少（A股 4–5 轮），中位数只作量级参考。</div>';
+        '终值 = 该轮结束时相对起点的收益。样本少（A股 4–5 轮），中位数只作量级参考。</div></div></details>';
+    }
+    if (window.TrendView && typeof window.TrendView.render === 'function') {
+      window.TrendView.render(AF_CAT, item);
     }
   }
 
@@ -2824,24 +2747,28 @@
   }
   function hsTable(rows, key) {
     if (!rows || !rows.length) return '<div class="desc">无数据</div>';
-    const rk = {};
-    const rr = (W.models_extra && W.models_extra.rank) || {};
-    ((key === 'idx' ? rr.indices : rr.sectors) || []).forEach(function (x) { rk[x.name] = x.score; });
+    const scored = {};
+    const recRows = (W.recommendations && W.recommendations[key === 'idx' ? 'indices' : 'sectors']) || [];
+    recRows.forEach(function (x) { scored[x.name] = x; });
     let h = '<table class="hs-tbl"><thead><tr><th>资产</th><th>阶段</th><th>技术</th>' +
-      '<th>基本面</th><th>情绪</th><th>5日</th><th>60日</th><th>模型</th><th>倾向</th></tr></thead><tbody>';
+      '<th>基本面</th><th>情绪</th><th>10日</th><th>20日</th><th>模型20</th><th>综合</th><th>倾向</th></tr></thead><tbody>';
     rows.forEach(function (x, i) {
       const k = (x.kind === 'bear') ? '熊' : '牛';
-      const tn = x.tendency === '偏买入' ? ' buy' : (x.tendency === '偏减仓' ? ' sell' : '');
+      const rec = scored[x.name] || {};
+      const cp = rec.components || {};
+      const tendency = rec.tendency || x.tendency || '—';
+      const model = key === 'idx' ? cp.model20 : cp.model_rank;
+      const tn = tendency === '偏买入' ? ' buy' : (tendency === '偏减仓' ? ' sell' : '');
       h += '<tr class="hs-row" data-det="hs-d-' + key + '-' + i + '">' +
         '<td class="hs-name"><b>' + x.name + '</b>' +
         (x.desc ? '<span>' + x.desc + '</span>' : '') + '</td>' +
         '<td class="hs-stage"><span class="' + (x.kind === 'bear' ? 'down' : 'up') + '">' + k + '</span></td>' +
         hsScore(x.tech) + hsScore(x.fund) + hsScore(x.sent) +
-        hsWin(x.win && x.win.d5) + hsWin(x.win && x.win.d60) +
-        '<td class="hs-rank' + (rk[x.name] >= 70 ? ' hi' : (rk[x.name] != null && rk[x.name] <= 30 ? ' lo' : '')) + '">' +
-        (rk[x.name] == null ? '—' : fmtNum(rk[x.name], 0)) + '</td>' +
-        '<td class="hs-tend' + tn + '">' + x.tendency + '<i class="hs-caret">▾</i></td></tr>' +
-        '<tr class="hs-det" id="hs-d-' + key + '-' + i + '" hidden><td colspan="9">' +
+        hsWin(x.win && x.win.d10) + hsWin(x.win && x.win.d20) +
+        '<td class="hs-rank">' + (model == null ? '—' : fmtNum(model, 1)) + '</td>' +
+        '<td class="hs-rank hs-score">' + (rec.score == null ? '—' : fmtNum(rec.score, 1)) + '</td>' +
+        '<td class="hs-tend' + tn + '">' + tendency + '<i class="hs-caret">▾</i></td></tr>' +
+        '<tr class="hs-det" id="hs-d-' + key + '-' + i + '" hidden><td colspan="10">' +
         '<div class="hs-det-in">' + hsDim('技术', x.tech_items) +
         hsDim('基本面', x.fund_items) + hsDim('情绪', x.sent_items) + '</div></td></tr>';
     });
@@ -2868,10 +2795,9 @@
     }
     const note = document.getElementById('hist-note');
     if (note) {
-      note.innerHTML = '分数 0–100，越高越极端：技术 9 项（回撤/距低点/250日位置/MA250偏离/60日动量/RSI/量比/量价相关/MACD），' +
-        '基本面 8 项（PE/PB/ROE/营收增速/毛利率/负债率/每股现金流/股息率），情绪 3–5 项（换手/成交占比/两融与市场情绪）。' +
-        '三维并列、不合成总分；点任意一行展开明细。胜率＝在 10 个特征的分位空间里取历史最相似的 30 个交易日，' +
-        '括号内为独立熊市段数。';
+      note.innerHTML = '技术、基本面、情绪均为 0–100 分，越高代表越极端。规则分＝40% × 10 日收缩胜率＋60% × 20 日收缩胜率；' +
+        '指数综合分＝65% × 规则分＋35% × 模型 20 日上行估计，板块为技术、基本面、情绪、规则分、模型排名五维等权。' +
+        '10／20 日列显示同档历史胜率，下方为独立段数；点任意一行展开技术、基本面和情绪明细。';
     }
     document.querySelectorAll('.hs-row').forEach(function (tr) {
       tr.addEventListener('click', function () {
@@ -2893,37 +2819,44 @@
     });
   }
 
-  // ---------- 机器学习机制：分位扇形 + 上行概率 ----------
+  // ---------- 机器学习机制：同一焦点指数的 10 / 20 日分布 ----------
   function renderMl() {
     const el = document.getElementById('ml-body');
     if (!el) return;
     const M = W.ml_model;
-    if (!M || !M.pred) {
+    if (!M || !M.all_preds) {
       el.innerHTML = '<div class="desc">模型未生成，运行 python3 src/build_ml_model.py</div>';
       return;
     }
+    const recTop = ((W.recommendations || {}).indices || [])[0] || {};
+    const focus = M.all_preds[recTop.name] ? recTop.name : M.focus;
+    const current = M.all_preds[focus] || {};
+    const p = current['20'];
+    if (!p) { el.innerHTML = '<div class="desc">当前指数暂无 20 日模型结果</div>'; return; }
     const ae = document.getElementById('ml-asof');
-    if (ae) ae.textContent = '截至 ' + M.asof;
-    const p = M.pred['60'];
+    if (ae) ae.textContent = focus + ' · 截至 ' + M.asof;
     const cells = [
-      ['中位', fmtSigned(p.p50, 1, '%')],
+      ['20 日中位', fmtSigned(p.p50, 1, '%')],
       ['下行 p10', fmtSigned(p.p10, 1, '%')],
       ['上行 p90', fmtSigned(p.p90, 1, '%')],
     ].map(c => '<div class="ml-cell"><span>' + c[0] + '</span><b>' + c[1] + '</b></div>').join('');
     el.innerHTML =
       '<div class="ml-top">' +
-      '<div class="ml-big"><b>' + fmtNum(p.pup, 0) + '%</b><span>未来 60 日上涨概率</span></div>' +
+      '<div class="ml-big"><b>' + fmtNum(p.pup, 0) + '%</b><span>' + focus + ' · 未来 20 日上行估计 · 非实际胜率</span></div>' +
       '<div class="ml-cells">' + cells + '</div></div>' +
       '<div class="chart" id="chart-ml" style="height:252px"></div>';
 
-    // 分指数 / 分板块：模型当前给出的 60 日分布
-    const idx = Object.keys(M.all_preds || {}).map(k => ({ name: k, p: M.all_preds[k]['60'] }))
-      .sort((a, b) => b.p.pup - a.p.pup);
+    const scores = {};
+    ((W.recommendations || {}).indices || []).forEach(x => { scores[x.name] = x.score; });
+    const idx = Object.keys(M.all_preds || {}).map(k => ({
+      name: k, p10: M.all_preds[k]['10'], p20: M.all_preds[k]['20']
+    })).sort((a, b) => (scores[b.name] || 0) - (scores[a.name] || 0));
     const sec = (M.sectors || []).slice();
-    const cell3 = r => '<div class="ml-row"><b>' + r.name + '</b>' +
-      '<span>' + fmtNum(r.p.pup, 0) + '%</span>' +
-      '<span class="' + (r.p.p50 >= 0 ? 'up' : 'down') + '">' + fmtSigned(r.p.p50, 1, '%') + '</span></div>';
     const cell4 = r => '<div class="ml-row four"><b>' + r.name + '</b>' +
+      '<span class="' + (r.p10.p50 >= 0 ? 'up' : 'down') + '">' + fmtSigned(r.p10.p50, 1, '%') + '</span>' +
+      '<span>' + fmtNum(r.p20.pup, 0) + '%</span>' +
+      '<span class="' + (r.p20.p50 >= 0 ? 'up' : 'down') + '">' + fmtSigned(r.p20.p50, 1, '%') + '</span></div>';
+    const sector4 = r => '<div class="ml-row four"><b>' + r.name + '</b>' +
       '<span>' + fmtSigned(r.dd, 1, '%') + '</span>' +
       '<span>' + fmtNum(r.pup, 0) + '%</span>' +
       '<span class="' + (r.p50 >= 0 ? 'up' : 'down') + '">' + fmtSigned(r.p50, 1, '%') + '</span></div>';
@@ -2935,29 +2868,33 @@
         '<button class="ml-tab" data-mlt="sec">板块 <em>' + sec.length + '</em></button>' +
         '</div>' +
         '<div class="ml-pane" id="ml-pane-idx" data-pane="idx"><div class="ml-tbl">' +
-        '<div class="ml-row ml-head"><span>指数</span><span>上行概率</span><span>60 日中位</span></div>' +
-        idx.map(cell3).join('') + '</div></div>' +
+        '<div class="ml-row ml-head four"><span>指数</span><span>10 日中位</span><span>20 日上行</span><span>20 日中位</span></div>' +
+        idx.map(cell4).join('') + '</div></div>' +
         '<div class="ml-secwrap" data-pane="sec" hidden>' +
         '<div class="chart" id="chart-sec" style="height:232px"></div>' +
         '<div class="ml-scap" id="ml-scap"></div>' +
         '<div class="ml-pane"><div class="ml-tbl">' +
-        '<div class="ml-row ml-head four"><span>板块</span><span>回撤</span><span>上行概率</span><span>60 日中位</span></div>' +
-        sec.map(cell4).join('') + '</div></div></div>' +
-        '<div class="ml-note" data-pane="sec" hidden>申万一级行业，只列当前处于熊市的板块。模型训练时没用过板块数据，这里是真正的样本外迁移。</div>';
+        '<div class="ml-row ml-head four"><span>板块</span><span>回撤</span><span>20 日上行</span><span>20 日中位</span></div>' +
+        sec.map(sector4).join('') + '</div></div></div>' +
+        '<div class="ml-note" data-pane="sec" hidden>申万一级行业，只列当前处于熊市的板块。</div>';
       el.querySelectorAll('.ml-tab').forEach(b => b.addEventListener('click', () => {
         el.querySelectorAll('.ml-tab').forEach(x => x.classList.toggle('on', x === b));
         el.querySelectorAll('[data-pane]').forEach(p => { p.hidden = (p.dataset.pane !== b.dataset.mlt); });
         if (b.dataset.mlt === 'sec') renderSectorChart();
       }));
     }
-    renderMlChart();
+    renderMlChart(focus);
   }
 
-  function renderMlChart() {
+  function renderMlChart(focus) {
     const el = document.getElementById('chart-ml');
     const M = W.ml_model;
-    if (!el || !M || !M.fan || M.fan.length < 2) return;
-    const fan = M.fan;
+    const current = M && M.all_preds && M.all_preds[focus];
+    if (!el || !current || !current['10'] || !current['20']) return;
+    const fan = [{ d: 0, p10: 0, p25: 0, p50: 0, p75: 0, p90: 0 }].concat([10, 20].map(function (h) {
+      const q = current[String(h)];
+      return { d: h, p10: q.p10, p25: q.p25, p50: q.p50, p75: q.p75, p90: q.p90 };
+    }));
     const xs = fan.map(f => (f.d === 0 ? '今天' : f.d + '日'));
     const p10 = fan.map(f => f.p10), p25 = fan.map(f => f.p25), p50 = fan.map(f => f.p50),
       p75 = fan.map(f => f.p75), p90 = fan.map(f => f.p90);
@@ -3099,7 +3036,7 @@
           return '<b>' + d.name + '</b><br>' +
             '当前回撤 <b>' + fmtSigned(d.value[0], 1, '%') + '</b><br>' +
             '上行概率 <b>' + fmtNum(d.value[1], 0) + '%</b><br>' +
-            '60 日中位 ' + fmtSigned(d.med, 1, '%') + '<br>' +
+            '20 日中位 ' + fmtSigned(d.med, 1, '%') + '<br>' +
             '时间进度 ' + d.tp + '% · 空间进度 ' + d.sp + '%';
         }
       },

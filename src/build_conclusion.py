@@ -16,7 +16,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "src"))
 from config import INDEX_CSV  # noqa: E402
 
-DAILY = INDEX_CSV
+LOCAL_DAILY = os.path.join(ROOT, "data", "index_daily.csv")
+DAILY = LOCAL_DAILY if os.path.exists(LOCAL_DAILY) else INDEX_CSV
 STATE = os.path.join(ROOT, "web", "state_score.js")
 OUT = os.path.join(ROOT, "web", "conclusion.js")
 
@@ -202,43 +203,100 @@ def main():
     else:
         w30 = m30 = w60 = m60 = lo30 = hi30 = lo60 = hi60 = None
 
-    # ---- 2b. 与机器学习模型合成：规则给方向和标的，模型给概率
-    mix = None
+    # ---- 2b. 主规则 + 证据一致性：相似路径和模型不再按固定权重决定买卖
+    mix, evidence, narrative = None, [], ""
+    pattern = {}
+    pattern_fp = os.path.join(ROOT, "web", "pattern_scenarios.js")
+    if os.path.exists(pattern_fp):
+        try:
+            raw = open(pattern_fp, encoding="utf-8").read()
+            key = "window.WAW.pattern_scenarios="
+            pattern = json.loads(raw[raw.find(key) + len(key):].rstrip().rstrip(";"))
+        except Exception as e:
+            print("历史情景读取失败：%s" % e)
+    scenario_by_name = {x["name"]: x for x in pattern.get("current", [])}
+
     if best:
         ml = load_ml()
-        p = (ml.get("all_preds") or {}).get(best["name"], {}).get("60") if ml else None
-        if p:
-            rule_s = round(float(best["a60"]), 1)
-            ml_s = round(float(p["pup"]), 1)
-            combined = round(0.65 * rule_s + 0.35 * ml_s, 1)
-            agree = bool((rule_s >= 50) == (ml_s >= 50))
-            if agree and combined >= 65:
-                conf = "高"
-            elif agree and combined >= 55:
-                conf = "中"
-            elif not agree and combined >= 60:
-                conf = "中"
-            else:
-                conf = "低"
-            mix = dict(rule=rule_s, ml=ml_s, combined=combined, agree=agree,
-                       confidence=conf, med=p["p50"], p10=p["p10"], p90=p["p90"],
-                       skill=(ml.get("skill") or {}).get("60"),
-                       n_ep=ml.get("n_ep"), n_rows=ml.get("n_rows"))
-
-    # 一句话立场：有模型时取合成分，否则退回规则分
-    score = mix["combined"] if mix else (best["a60"] if best else None)
-    if best and score is not None:
-        if score >= 60:
+        ml_all = (ml.get("all_preds") or {}).get(best["name"], {})
+        ml20, ml60 = ml_all.get("20") or {}, ml_all.get("60") or {}
+        scenario = scenario_by_name.get(best["name"], {})
+        rule_s = round(float(best["a60"]), 1)
+        sample_min = int(min(best["s30"], best["s60"]))
+        analog_med = scenario.get("median")
+        analog_q25 = scenario.get("q25")
+        analog_status = "support" if analog_med is not None and analog_med > 0 else "oppose"
+        if analog_med is not None and analog_q25 is not None and analog_q25 <= 0 <= scenario.get("q75", 0):
+            analog_label = "弱支持" if analog_med > 0 else "弱反对"
+        else:
+            analog_label = "支持" if analog_med > 0 else "反对"
+        model_signs = [x.get("p50") for x in (ml20, ml60) if x.get("p50") is not None]
+        if model_signs and all(x > 0 for x in model_signs):
+            model_status, model_label = "support", "支持"
+        elif model_signs and all(x < 0 for x in model_signs):
+            model_status, model_label = "oppose", "反对"
+        else:
+            model_status, model_label = "neutral", "期限分歧"
+        statuses = ["support" if rule_s >= 52 else "neutral", analog_status, model_status]
+        if sample_min < 5:
+            confidence = "中偏低" if rule_s >= 52 and analog_med is not None and analog_med > 0 else "低"
+        elif all(x == "support" for x in statuses):
+            confidence = "高" if sample_min >= 12 and analog_q25 is not None and analog_q25 > 0 else "中"
+        elif analog_status == "oppose" and model_status == "oppose":
+            confidence = "低"
+        else:
+            confidence = "中偏低"
+        agree = len(set(statuses)) == 1
+        mix = dict(
+            rule=rule_s, ml=ml60.get("pup"), ml20_med=ml20.get("p50"),
+            combined=None, agree=agree, confidence=confidence,
+            sample_min=sample_min, model_status=model_status,
+            med=ml60.get("p50"), p10=ml60.get("p10"), p90=ml60.get("p90"),
+            skill=(ml.get("skill") or {}).get("60"),
+            n_ep=ml.get("n_ep"), n_rows=ml.get("n_rows"),
+        )
+        evidence = [
+            dict(key="rule", label="同档状态统计", status="支持" if rule_s >= 52 else "中性",
+                 tone="support" if rule_s >= 52 else "neutral",
+                 value="%.1f" % rule_s,
+                 detail="30/60 日独立样本 %d/%d 段；小样本胜率已向 50%% 收缩" % (best["s30"], best["s60"])),
+            dict(key="analog", label="20 日历史情景", status=analog_label,
+                 tone="support" if analog_med is not None and analog_med > 0 else "oppose",
+                 value="—" if analog_med is None else "%+.2f%%" % analog_med,
+                 detail="10 段相似路径；20 日中间 50%% 区间 %s～%s" % (
+                     "—" if scenario.get("q25") is None else "%+.2f%%" % scenario["q25"],
+                     "—" if scenario.get("q75") is None else "%+.2f%%" % scenario["q75"])),
+            dict(key="model", label="现有模型分布", status=model_label, tone=model_status,
+                 value="—" if not ml60 else "%+.2f%%" % ml60.get("p50", 0),
+                 detail="20 日中位 %s；60 日上行估计 %s，均不直接决定立场" % (
+                     "—" if not ml20 else "%+.2f%%" % ml20.get("p50", 0),
+                     "—" if not ml60 else "%.1f%%" % ml60.get("pup", 0))),
+        ]
+        score = best["score"]
+        if score >= 60 and confidence in ("高", "中") and analog_status == "support" and model_status != "oppose":
             stance, tone = "可分批买入", "buy"
-            do = "分 3–5 批买 %s；跌了加，涨了不追，单日大涨不加仓。" % best["name"]
-        elif score >= 52:
+        elif score >= 52 and analog_status == "support" and model_status != "oppose":
             stance, tone = "可小仓位试探", "watch"
-            do = "先用三分之一仓位试 %s，连续 5 个交易日不创新低再加。" % best["name"]
+        elif score >= 52:
+            stance, tone = "观察，等待确认", "wait"
         else:
             stance, tone = "等待，暂不加仓", "wait"
-            do = "先不动，等同档胜率回到 55% 以上、或国家队净申购连续两周为正。"
+        path_desc = "先抑后扬" if scenario.get("next5", 0) < 0 and scenario.get("median", 0) > 0 else "路径分化"
+        narrative = (
+            "熊市%s，同档统计允许小仓位试探，但短期证据并不一致。%s历史情景偏%s；"
+            "中证1000与中证2000只作相对强弱观察，上证偏弱，不宜解读为全面反转。"
+            % (stage, best["name"], path_desc)
+        )
+        do = "若参与，以小仓位、分批和可承受回撤为前提；不把 10 段历史情景当作目标收益，也不因单日上涨追价。"
     else:
         stance, tone, do = "样本不足，暂不判断", "wait", "等样本补足再看。"
+        confidence = "低"
+
+    ranked_scenarios = sorted(
+        [x for x in scenario_by_name.values() if x.get("median") is not None],
+        key=lambda x: x["median"], reverse=True)
+    watchlist = [dict(name=x["name"], median=x["median"], q25=x["q25"], q75=x["q75"],
+                      max_dd=x["max_dd_median"]) for x in ranked_scenarios[:3]]
 
     # ---- 3. 历史熊市：跌幅 vs 反弹（Q4）
     master = [e for e in episodes(d["上证指数"].dropna())
@@ -317,6 +375,9 @@ def main():
         stage=dict(label=stage, note=stage_note,
                    time_pct=round(stage_t), space_pct=round(stage_s)),
         stance=stance, tone=tone, do=do, mix=mix,
+        confidence=confidence, narrative=narrative, evidence=evidence,
+        watchlist=watchlist, scenario_asof=pattern.get("asof"),
+        data_note=pattern.get("data_note"),
         win=dict(w30=round(w30, 1) if w30 is not None else None,
                  m30=round(m30, 1) if m30 is not None else None,
                  w60=round(w60, 1) if w60 is not None else None,
@@ -349,9 +410,8 @@ def main():
         print("胜率：30日 %.0f%% 中位 %+.1f%% | 60日 %.0f%% 中位 %+.1f%%" % (w30, m30, w60, m60))
         print("推荐：%s（60日 %.0f%% / 30日 %.0f%%）" % (best["name"], best["w60"], best["w30"]))
     if mix:
-        print("合成：规则 %.0f + 模型 %.0f%% → %.0f（%s，置信度 %s）" %
-              (mix["rule"], mix["ml"], mix["combined"],
-               "同向" if mix["agree"] else "分歧", mix["confidence"]))
+        print("结论：%s｜规则 %.1f｜置信度 %s｜最少独立样本 %d 段" %
+              (stance, mix["rule"], mix["confidence"], mix["sample_min"]))
     print("熊市跌幅 vs 反弹：跌最深＝反弹最强 %d/%d 轮，面板 Spearman %s" %
           (hit, len(hist), payload["bear_rho"]))
     print("熊市反弹：≥%d%% 共 %d 次，中位 %.1f%% / %d 日；≥10%% 占 %.0f%%" %

@@ -385,7 +385,7 @@ def main():
 
     # ---------------- 板块（申万一级）：迁移应用 + 样本外检验
     # 模型训练时完全没见过板块数据，这里是真正的样本外迁移。
-    sec_h = 60 if 60 in HORIZONS else max(HORIZONS)
+    sec_h = 20 if 20 in HORIZONS else max(HORIZONS)
     sectors, sec_eval, sector_rho = [], None, None
     try:
         secs = load_sectors()

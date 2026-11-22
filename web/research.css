@@ -1,0 +1,244 @@
+/* 当前观察扩展：沿用网站原有字体、配色、发丝线与卡片体系 */
+
+/* 各轮周期与未来路径 · 默认收起的统计表 */
+#view-trends summary { cursor: pointer; list-style: none; }
+#view-trends summary::-webkit-details-marker { display: none; }
+#view-trends summary:focus-visible,
+#view-current summary:focus-visible { outline: 2px solid var(--gold-2); outline-offset: 3px; }
+.af-collapse { margin-top: 16px; border-top: 1px solid var(--hairline-strong); border-bottom: 1px solid var(--hairline); }
+.af-collapse > summary { display: flex; align-items: center; justify-content: space-between; gap: 20px; min-height: 48px; padding: 8px 0; color: var(--ink); }
+.af-collapse > summary > span { display: inline-flex; align-items: center; gap: 10px; font-size: 12.5px; font-weight: 600; }
+.af-collapse > summary > span::before { content: '+'; color: var(--gold); font-size: 16px; font-weight: 400; }
+.af-collapse[open] > summary > span::before { content: '−'; }
+.af-collapse > summary > em { color: var(--faint); font-size: 11px; font-style: normal; font-weight: 400; }
+.af-collapse > summary:hover > span { color: var(--navy); }
+.af-collapse-body { padding: 0 0 14px; }
+.af-table-wrap { max-width: 100%; overflow-x: auto; overscroll-behavior-inline: contain; }
+.af-table-wrap .af-tbl { min-width: 680px; }
+.af-tbl td.up { color: var(--up); }
+.af-tbl td.down { color: var(--down); }
+
+/* 资产类别改为横向，两张图共用同一卡片宽度与图表网格 */
+.asset-flow { display: block; }
+.af-list { display: flex; flex-wrap: wrap; align-items: center; gap: 0 24px; margin-bottom: 20px; border-top: 0; border-bottom: 1px solid var(--hairline); }
+.af-group { display: flex; align-items: center; align-self: stretch; margin: 0 2px 0 0; font-size: 10.5px; letter-spacing: .16em; color: var(--gold); font-weight: 600; }
+.af-item { position: relative; display: flex; align-items: baseline; gap: 6px; padding: 10px 0 12px; border-bottom: 2px solid transparent; font-size: 13px; color: var(--ink-2); cursor: pointer; }
+.af-item:hover { color: var(--navy); }
+.af-item.active { color: var(--navy); border-bottom-color: var(--gold); font-weight: 600; }
+.af-item.disabled { color: var(--faint); cursor: default; }
+.af-item em { font-style: normal; font-size: 11px; color: var(--faint); font-weight: 400; }
+.af-main { min-width: 0; }
+.af-items, .ts-items { margin: 0 0 14px; }
+
+/* 历史走势与未来 20 日路径 */
+.trend-scenario-head { margin-top: 46px; }
+.trend-scenario-intro { max-width: 72ch; margin-top: 10px; color: var(--muted); font-size: 12.5px; line-height: 1.7; }
+.section-intro { max-width: 72ch; margin-top: 10px; color: var(--muted); font-size: 12.5px; line-height: 1.7; }
+#forward-scenario { min-width: 0; }
+.ts-panel { padding-bottom: 20px; }
+.ts-stats { margin-top: 16px; }
+.ts-stats .rec-stat b { font-size: 22px; }
+.ts-chart-wrap { position: relative; min-width: 0; }
+#chart-cycle-overlay, #forward-path-chart { height: 400px; }
+.ts-legend { position: absolute; z-index: 2; top: 18px; right: 24px; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 16px; color: var(--faint); font-size: 10.5px; pointer-events: none; }
+.ts-legend > span { display: inline-flex; align-items: center; gap: 6px; }
+.ts-legend i { display: inline-block; width: 17px; height: 2px; }
+.ts-legend i.actual { background: var(--rise); }
+.ts-legend i.median { background: var(--navy); }
+.ts-legend i.band { height: 8px; background: var(--gold-soft); }
+.ts-match-table { min-width: 830px; }
+.ts-match-table th:nth-child(2), .ts-match-table td:nth-child(2) { text-align: left; }
+.ts-match-table td:first-child { color: var(--gold); }
+.ts-empty { padding: 28px 0; border-top: 1px solid var(--hairline-strong); border-bottom: 1px solid var(--hairline); }
+.ts-empty > b { display: block; color: var(--ink); font-family: var(--serif); font-size: 18px; font-weight: 600; }
+.ts-empty > p { margin-top: 8px; color: var(--muted); font-size: 12.5px; line-height: 1.7; }
+
+/* 统一评分表：综合分与倾向来自同一生成结果，窄屏可横向查看全部列 */
+#hist-pane-idx, #hist-pane-sec { overflow-x: auto; overscroll-behavior-inline: contain; }
+.hs-tbl .hs-score { color: var(--navy); font-size: 13px; font-weight: 700; }
+@media (min-width: 901px) {
+  .rec-panel .hs-tbl { font-size: 11.5px; }
+  .rec-panel .hs-tbl th, .rec-panel .hs-tbl td { padding-left: 4px; padding-right: 4px; }
+  .rec-panel .hs-tbl .hs-name b { font-size: 12px; }
+  .rec-panel .hs-tbl .hs-name span { font-size: 9.5px; }
+  .rec-panel .hs-tbl .hs-num .hs-bar { width: 20px; margin-right: 4px; }
+}
+@media (max-width: 900px) {
+  .rec-panel .hs-tbl { min-width: 650px; }
+}
+
+@media (max-width: 720px) {
+  .af-list { gap: 0 16px; margin-bottom: 16px; }
+  .af-group { width: 100%; min-height: 28px; }
+  .af-item { padding: 8px 0 10px; }
+  .af-items button, .ts-items button { min-height: 44px; }
+  .trend-scenario-intro { font-size: 12px; }
+  .ts-stats .rec-stat b { font-size: 19px; }
+  #chart-cycle-overlay, #forward-path-chart { height: 340px !important; }
+  .ts-legend { position: static; justify-content: flex-start; gap: 12px; padding: 14px 0 0; }
+  .af-collapse > summary { gap: 10px; }
+  .af-collapse > summary > em { font-size: 10px; text-align: right; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #view-trends *, #view-current * { transition: none !important; }
+}
+
+/* ==================================================================
+   全站功能栏统一：基准指数 / 牛熊周期 / 资产类别 / 指数切换 / 面板页签
+   统一为「盒状 chip」：同一字号、同一内边距、同一圆角、同一激活态
+   ================================================================== */
+.af-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 18px;
+  border-top: 0;
+  border-bottom: 0;
+}
+.af-group {
+  align-self: center;
+  margin: 0 4px 0 0;
+  padding: 0;
+  font-size: 10.5px;
+  letter-spacing: .16em;
+  color: var(--gold);
+  font-weight: 600;
+  line-height: 1.2;
+}
+.af-group:not(:first-child) { margin-left: 10px; }
+
+.scope-chips button,
+.cycle-tab,
+.af-item,
+.ml-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 5px 12px;
+  margin: 0;
+  border: 1px solid var(--hairline);
+  border-radius: 3px;
+  background: rgba(255, 255, 255, .55);
+  font-family: var(--sans);
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.3;
+  color: var(--ink-2);
+  white-space: nowrap;
+  cursor: pointer;
+  text-decoration: none;
+  position: static;
+  transition: color .15s, background .15s, border-color .15s, box-shadow .15s;
+}
+
+.scope-chips button:hover,
+.cycle-tab:hover,
+.af-item:hover,
+.ml-tab:hover {
+  background: #fff;
+  border-color: var(--gold-2);
+  color: var(--navy);
+  box-shadow: 0 1px 2px rgba(20, 19, 19, .05);
+}
+
+.scope-chips button.active,
+.cycle-tab.active,
+.af-item.active,
+.ml-tab.active,
+.ml-tab.on {
+  background: var(--navy);
+  border-color: var(--navy);
+  color: #fff;
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(14, 31, 53, .18);
+}
+
+/* 次要素（标的数 / 类型 / 计数）统一字号与前景 */
+.af-item em,
+.cycle-tab em,
+.ml-tab em,
+.scope-chips button em {
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--faint);
+  margin-left: 2px;
+}
+.af-item.active em,
+.cycle-tab.active em,
+.ml-tab.active em,
+.ml-tab.on em,
+.scope-chips button.active em {
+  color: rgba(255, 255, 255, .62);
+}
+
+.af-item.disabled,
+.scope-chips button:disabled {
+  color: var(--faint);
+  background: rgba(255, 255, 255, .32);
+  border-color: var(--hairline);
+  cursor: default;
+}
+.af-item.disabled:hover {
+  background: rgba(255, 255, 255, .32);
+  border-color: var(--hairline);
+  color: var(--faint);
+  box-shadow: none;
+}
+
+/* 面板页签容器：去掉下划线轨道，与 chip 间距一致 */
+.ml-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 16px;
+  border-bottom: 0;
+}
+.ml-tab { margin-bottom: 0; }
+
+/* 资产类别与指数两组 chip 之间的呼吸 */
+.af-items,
+.ts-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 14px;
+}
+
+/* 图表功能栏（复盘/叙事）：下拉触发器与 chip 行完全同一视觉 */
+.chart-toolbar { gap: 8px; }
+.chart-toolbar .tb-key {
+  min-height: 30px;
+  padding: 5px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 3px;
+  background: rgba(255, 255, 255, .55);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+.chart-toolbar .tb-key:hover {
+  background: #fff;
+  border-color: var(--gold-2);
+  box-shadow: 0 1px 2px rgba(20, 19, 19, .05);
+}
+.chart-toolbar .tb-drop.open .tb-key {
+  background: #fff;
+  border-color: var(--navy);
+}
+.chart-toolbar .tb-k {
+  font-size: 11px;
+  letter-spacing: .04em;
+  color: var(--faint);
+  font-weight: 500;
+}
+.chart-toolbar .tb-v { font-weight: 600; color: var(--navy); }
+.chart-toolbar .tb-div { display: none; }
+
+/* 数值层级对齐：统计数字与表格强调列全站同一字号 */
+.ts-stats .rec-stat b,
+.trend-scenario-head .rec-stat b { font-size: 25px; }
+.hs-tbl .hs-score { font-size: 12.5px; font-weight: 600; }

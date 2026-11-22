@@ -344,16 +344,26 @@ def update_valuation(pro):
 
 
 def update_margin(pro):
-    """两融余额（交易所口径），追加到 cache/margin_full.csv。"""
+    """两融余额（交易所口径），只追加沪深北记录完整的交易日。"""
+    from margin_quality import filter_complete_margin
     if not os.path.exists(MARGIN_CSV):
         print("找不到", MARGIN_CSV, "，跳过两融")
         return
     old = pd.read_csv(MARGIN_CSV, dtype={"trade_date": str})
-    last = old["trade_date"].max()
+    old["trade_date"] = pd.to_datetime(
+        old["trade_date"].astype(str).str.replace("-", "", regex=False).str.slice(0, 8),
+        format="%Y%m%d", errors="coerce").dt.strftime("%Y%m%d")
+    complete_old = filter_complete_margin(old)
+    if complete_old.empty:
+        print("两融缓存没有完整交易日，跳过更新")
+        return
+    # 以最后完整日期为增量起点，同时清掉此前误追加的残缺尾部。
+    last = complete_old["trade_date"].max()
+    old = old[old["trade_date"] <= last].copy()
     start = (pd.Timestamp(last) + pd.Timedelta(days=1)).strftime("%Y%m%d")
     end = datetime.now().strftime("%Y%m%d")
     if start > end:
-        print("两融已是最新:", last)
+        print("两融已是最新完整日期:", last)
         return
     df = call(pro, "margin", start_date=start, end_date=end)
     if df is None:
@@ -362,18 +372,21 @@ def update_margin(pro):
     cols = ["trade_date", "exchange_id", "rzye", "rzmre", "rzche", "rqye",
             "rqmcl", "rzrqye", "rqyl"]
     df = df[cols].copy()
-    df["trade_date"] = df["trade_date"].astype(str)
+    df["trade_date"] = pd.to_datetime(
+        df["trade_date"].astype(str).str.replace("-", "", regex=False).str.slice(0, 8),
+        format="%Y%m%d", errors="coerce").dt.strftime("%Y%m%d")
     df = df[df["trade_date"] > last]
     if df.empty:
         print("两融无新数据")
         return
     out = pd.concat([old, df], ignore_index=True)
     out = out.drop_duplicates(["trade_date", "exchange_id"], keep="last")
+    out = filter_complete_margin(out)
     out = out.sort_values(["trade_date", "exchange_id"], ignore_index=True)
     bak = MARGIN_CSV + ".bak_" + datetime.now().strftime("%Y%m%d")
     shutil.copy2(MARGIN_CSV, bak)
     out.to_csv(MARGIN_CSV, index=False)
-    print("两融更新到 %s（%d 行，备份 %s）"
+    print("两融更新到最新完整日期 %s（%d 行，备份 %s）"
           % (out["trade_date"].max(), len(out), os.path.basename(bak)), flush=True)
 
 
