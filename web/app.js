@@ -2600,8 +2600,7 @@
       const mk = it => {
         const ok = keys.indexOf(it[0]) >= 0;
         return '<div class="af-item' + (ok ? '' : ' disabled') + (it[0] === AF_CAT ? ' active' : '') +
-          '" data-af="' + it[0] + '"><span>' + it[1] + '</span><em>' +
-          (ok ? (D[it[0]].items || []).length + ' 个标的' : '未上线') + '</em></div>';
+          '" data-af="' + it[0] + '"><span>' + it[1] + '</span></div>';
       };
       list.innerHTML = '<div class="af-group">股票</div>' +
         AF_CATS.filter(x => x[3] === 'stock').map(mk).join('') +
