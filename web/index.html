@@ -6,7 +6,7 @@
 <title>Where are we? · 金融资产周期研究</title>
 <link rel="preload" href="fonts/noto-serif-sc.woff2" as="font" type="font/woff2" crossorigin />
 <link rel="stylesheet" href="style.css?v=20261122h" />
-<link rel="stylesheet" href="research.css?v=20261122x" />
+<link rel="stylesheet" href="research.css?v=20261122y" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 34 34'%3E%3Crect width='34' height='34' rx='7' fill='%230E1F35'/%3E%3Cpath d='M8 24 L14 15 L19 19 L27 9' stroke='%23C2A878' stroke-width='2.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='27' cy='9' r='2.2' fill='%23C2A878'/%3E%3C/svg%3E" />
 </head>
 <body data-view="intro">
@@ -284,7 +284,20 @@
           <div class="overline">Model Panel</div>
           <h2 class="section-title">模型面板</h2>
         </div>
-        <div class="sec-meta" id="mp-asof"></div>
+        <div class="rph-r">
+          <button type="button" class="guide-btn" data-guide="MP" aria-expanded="false">指标说明<i>▾</i></button>
+          <div class="sec-meta" id="mp-asof"></div>
+        </div>
+      </div>
+      <div class="panel-guide" id="guide-MP" hidden>
+        <dl>
+          <dt>集成分</dt><dd>把下面四项等权平均成 0–100 的分。分数越高 ≈ 越接近底部、越值得分批建仓。</dd>
+          <dt>20 日转牛概率</dt><dd>历史上处在<b>相同熊市进度</b>时，未来 20 个交易日内熊市结束的频率。</dd>
+          <dt>中位剩余</dt><dd>在「已经走了这么多天」的前提下，熊市<b>还要再走多久</b>（中位数，单位交易日）。</dd>
+          <dt>20 日 VaR95</dt><dd>尾部风险：未来 20 个交易日、95% 置信度下的最大跌幅（当前取样为创业板指）。</dd>
+          <dt>贝叶斯后验</dt><dd>以海外市场同阶段收益为先验、A 股历史为数据，融合后的阶段期望收益。</dd>
+        </dl>
+        <p class="pg-note">口径提示：集成分的「横截面排名」目前用板块均值近似、「模型中位」取 60 日预测，而面板其余指标是 20 日口径；转牛概率的历史进度按「该市场最长熊市」归一化，高进度段样本较少。这些均已标注，解读时请结合三项一起看，不要单看一个数字。</p>
       </div>
       <div class="mp-tiles" id="mp-tiles"></div>
       <div class="mp-grid">
@@ -353,6 +366,6 @@
 <script src="echarts.min.js"></script>
 <script src="data.js?v=20261122c"></script>
 <script src="trend_scenario.js?v=20261122c"></script>
-<script src="app.js?v=20261122x"></script>
+<script src="app.js?v=20261122z"></script>
 </body>
 </html>

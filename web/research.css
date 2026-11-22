@@ -295,3 +295,6 @@
   .panel-guide dl { grid-template-columns: minmax(0, 1fr); gap: 2px; }
   .panel-guide dt { margin-top: 8px; }
 }
+
+/* 综合建议：4 个数字的说明触发按钮 */
+.rec-guide-row { margin-top: 12px; }

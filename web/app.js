@@ -2557,7 +2557,17 @@
       '<div class="rec-sub">熊市' + (S.stage || (C.stage || {}).label || '—') +
         '<span class="dim"> · </span>' + (S.n_bear == null ? C.n_bear : S.n_bear) + '/' + (S.n_total == null ? C.n_total : S.n_total) + ' 指数处于熊市' +
         '<span class="dim"> · </span>' + (S.index_buy || 0) + ' 个指数、' + (S.sector_buy || 0) + ' 个板块偏买入</div>' +
-      '<div class="rec-stats">' + stats + '</div>';
+      '<div class="rec-stats">' + stats + '</div>' +
+      '<div class="rec-guide-row"><button type="button" class="guide-btn" data-guide="C" aria-expanded="false">这 4 个数字是什么<i>▾</i></button></div>' +
+      '<div class="panel-guide" id="guide-C" hidden>' +
+        '<dl>' +
+          '<dt>最高综合分 · 指数</dt><dd>当前<b>综合分最高</b>的那个指数，以及它的分数（0–100）。综合分 = 65% × 规则分 + 35% × 模型 20 日上行估计，用于给所有指数排序。</dd>' +
+          '<dt>10／20 日规则分</dt><dd>纯规则打分：40% × 10 日收缩胜率 + 60% × 20 日收缩胜率。只用「历史上相似状态后续涨不涨」的统计，不含模型。</dd>' +
+          '<dt>模型 20 日上行估计</dt><dd>机器学习给的「未来 20 个交易日收盘高于今天」的概率。<b>不是实际胜率</b>，只适合横向比较。</dd>' +
+          '<dt>置信度</dt><dd>规则分与模型是否一致：一致且样本充足为「高」，两者分歧或样本少为「中/低」。它反映的是<b>这个结论有多可靠</b>，不是涨跌幅度。</dd>' +
+        '</dl>' +
+        '<p class="pg-note">规则分与模型同向时结论更可信；若两者背离（例如规则偏买入但模型偏弱），建议按「观察」处理、不要一次打满。</p>' +
+      '</div>';
   }
 
   // ---------- 资产走势：按资产类别 + 具体标的 ----------
@@ -3330,12 +3340,14 @@
 
     const en = M.ensemble || {}, tr = M.transition || {}, sv = M.survival || {},
       rk = M.risk || {}, by = M.bayes || {};
-    const r0 = rk['创业板指'] || {};
+    // VaR 只在已生成风险的指数里选：优先当前基准，其次创业板指
+    const rkName = rk[SCOPE.index] ? SCOPE.index : (rk['创业板指'] ? '创业板指' : Object.keys(rk)[0]);
+    const r0 = (rkName && rk[rkName]) || {};
     const tiles = [
       ['集成分', en.score == null ? '—' : fmtNum(en.score, 1), '/100'],
       ['20 日转牛概率', tr.p_bull_20 == null ? '—' : fmtNum(tr.p_bull_20 * 100, 0), '%'],
       ['中位剩余', sv.median_remaining == null ? '—' : sv.median_remaining, '日'],
-      ['20 日 VaR95', r0.var95 == null ? '—' : fmtSigned(r0.var95, 1, '%'), ''],
+      ['20 日 VaR95 · ' + (rkName || '—'), r0.var95 == null ? '—' : fmtSigned(r0.var95, 1, '%'), ''],
       ['贝叶斯后验', by.posterior == null ? '—' : fmtSigned(by.posterior, 1, '%'), ''],
     ];
     tilesEl.innerHTML = tiles.map(t =>
@@ -3566,15 +3578,15 @@
     return false;
   }
   window.addEventListener('hashchange', parseAppHash);
-  // 面板「指标说明 / 模型说明」展开收起
-  $$('[data-guide]').forEach(function (btn) {
-    btn.addEventListener('click', function () {
-      var g = document.getElementById('guide-' + btn.dataset.guide);
-      if (!g) return;
-      var willOpen = g.hidden;
-      g.hidden = !willOpen;
-      btn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
-    });
+  // 面板「指标说明 / 模型说明」展开收起（事件委托，支持动态渲染出来的按钮）
+  document.addEventListener('click', function (e) {
+    var btn = e.target && e.target.closest ? e.target.closest('[data-guide]') : null;
+    if (!btn) return;
+    var g = document.getElementById('guide-' + btn.dataset.guide);
+    if (!g) return;
+    var willOpen = g.hidden;
+    g.hidden = !willOpen;
+    btn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
   });
 
   // 锚点链接（进入当前观察 / 股票卡 / 侧链）直接绑定，确保点击必跳
