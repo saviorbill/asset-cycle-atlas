@@ -27,6 +27,7 @@ if __name__ == "__main__":
     run("build_fundamentals.py")
     run("build_hist_stats.py")
     run("build_iv_index.py")
+    run("build_sentiment.py")
     run("build_ml_model.py")
     run("build_models_extra.py")
     run("build_pattern_scenarios.py")

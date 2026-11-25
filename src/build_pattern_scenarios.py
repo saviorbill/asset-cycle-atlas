@@ -6,12 +6,16 @@
 """
 from pathlib import Path
 import json
+import sys
 import numpy as np
 import pandas as pd
 from numpy.lib.stride_tricks import sliding_window_view
 
 ROOT = Path(__file__).resolve().parents[1]
-DAILY = ROOT / "data" / "index_daily.csv"
+sys.path.insert(0, str(ROOT / "src"))
+from config import INDEX_CSV  # noqa: E402
+
+DAILY = Path(INDEX_CSV)
 OUT = ROOT / "web" / "pattern_scenarios.js"
 RESEARCH = ROOT / "research"
 L = H = 20

@@ -81,7 +81,7 @@ ashare-fupan/
 │   ├── clock.py / scoring.py / sentiment.py / narrative.py   其他分析模块
 │   └── fetch_api_data.py      IPO/减持等月度数据抓取
 │
-├── docs/                      设计文档、宏观相关性分析、机器学习可行性评估
+├── docs/                      设计文档、宏观相关性分析、机器学习可行性评估、流动性筹码情绪研究框架
 ├── notes/                     研报笔记
 ├── run.py                     一键重算：聚合 → 行业 → 网页数据 → 国家队 → 打分卡 → 机器学习 → 综合建议
 └── README.md                  本文件
